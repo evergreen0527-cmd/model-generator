@@ -2,5 +2,8 @@
   "name": "model-generator",
   "version": "1.0.0",
   "description": "模特图生成器 - Cloudflare Pages 部署",
-  "private": true
+  "private": true,
+  "scripts": {
+    "build": "cd frontend && npm install && npm run build"
+  }
 }
