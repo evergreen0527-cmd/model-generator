@@ -30,10 +30,7 @@ export async function onRequestPost(context) {
     // 如果用户传了图片，忽略图片仅用 prompt 文字生成
     const input = prompt || '生成一张图片'
 
-    // 调用 Responses API 端点（设置 80 秒超时）
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 80000)
-
+    // 调用 Responses API 端点（不设超时，让 Cloudflare 100 秒自然切断）
     const apiResp = await fetch(`${baseUrl}/responses`, {
       method: 'POST',
       headers: {
@@ -46,10 +43,8 @@ export async function onRequestPost(context) {
         reasoning: { effort: 'high' },
         store: false,
         tools: [{ type: 'image_generation' }]
-      }),
-      signal: controller.signal
+      })
     })
-    clearTimeout(timeoutId)
 
     const data = await apiResp.json()
 
@@ -135,9 +130,6 @@ export async function onRequestPost(context) {
       detail: data
     }, { status: 500 })
   } catch (err) {
-    if (err.name === 'AbortError') {
-      return Response.json({ error: '生成超时（模型处理时间超过 80 秒），请减少上传图片数量、缩小图片尺寸后重试' }, { status: 504 })
-    }
     return Response.json({ error: err.message || '服务器内部错误' }, { status: 500 })
   }
 }

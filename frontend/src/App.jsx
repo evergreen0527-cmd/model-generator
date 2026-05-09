@@ -432,7 +432,11 @@ function ModelWorkspace({ model, onRefresh }) {
       setPrompt('')
       await onRefresh()
     } catch (err) {
-      setError(err.response?.data?.error || err.message || '生成失败')
+      let errMsg = err.response?.data?.error || err.message || '生成失败'
+      if (err.code === 'ECONNABORTED' || err.message?.includes('524') || err.message?.includes('timeout') || err.message?.includes('Network Error')) {
+        errMsg = '生成超时（模型响应较慢），请重试或稍后再次尝试'
+      }
+      setError(errMsg)
     } finally {
       setLoading(false)
     }
@@ -713,8 +717,8 @@ function ChatPage() {
       await saveChatData(finalMessages)
     } catch (err) {
       let errMsg = err.response?.data?.error || err.message || '生成失败'
-      if (err.code === 'ECONNABORTED' || err.message?.includes('524') || err.message?.includes('timeout')) {
-        errMsg = '生成超时（模型处理时间较长），请减少上传图片数量或重试'
+      if (err.code === 'ECONNABORTED' || err.message?.includes('524') || err.message?.includes('timeout') || err.message?.includes('Network Error')) {
+        errMsg = '生成超时（模型响应较慢），请重试或稍后再次尝试'
       } else if (err.response?.data?.detail) {
         errMsg = `${errMsg}（${JSON.stringify(err.response.data.detail).substring(0, 200)}）`
       }
