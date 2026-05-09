@@ -2,36 +2,77 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import './App.css'
 
-// 使用环境变量或默认本地地址
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const STORAGE_KEY = 'model_generator_data'
+
+// 文件转 base64
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.readAsDataURL(file)
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = (error) => reject(error)
+  })
+}
+
+// 生成 UUID
+const uuid = () => {
+  if (crypto.randomUUID) return crypto.randomUUID()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = Math.random() * 16 | 0
+    const v = c === 'x' ? r : (r & 0x3 | 0x8)
+    return v.toString(16)
+  })
+}
+
+// 读取数据
+const loadData = () => {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY)
+    return data ? JSON.parse(data) : []
+  } catch {
+    return []
+  }
+}
+
+// 保存数据
+const saveData = (models) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(models))
+  } catch (e) {
+    console.error('保存数据失败:', e)
+    alert('本地存储空间不足，请删除部分历史数据')
+  }
+}
 
 function App() {
   const [models, setModels] = useState([])
   const [selectedModel, setSelectedModel] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
 
   useEffect(() => {
-    fetchModels()
+    setModels(loadData())
   }, [])
 
-  const fetchModels = async () => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/models`)
-      setModels(response.data)
-    } catch (err) {
-      console.error('获取模特列表失败:', err)
+  const refreshModels = () => {
+    const data = loadData()
+    setModels(data)
+    if (selectedModel) {
+      const updated = data.find(m => m.id === selectedModel.id)
+      setSelectedModel(updated || null)
     }
   }
 
-  const handleModelSelect = async (model) => {
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/models/${model.id}`)
-      setSelectedModel(response.data)
-    } catch (err) {
-      console.error('获取模特详情失败:', err)
-    }
+  const handleModelSelect = (model) => {
+    setSelectedModel(model)
+  }
+
+  const handleDeleteModel = (modelId, e) => {
+    e.stopPropagation()
+    if (!confirm('确定删除该模特及其所有生成历史吗？')) return
+    const data = loadData().filter(m => m.id !== modelId)
+    saveData(data)
+    if (selectedModel?.id === modelId) setSelectedModel(null)
+    setModels(data)
   }
 
   return (
@@ -52,11 +93,25 @@ function App() {
                 onClick={() => handleModelSelect(model)}
               >
                 <img
-                  src={`${API_BASE_URL}${model.referenceImage}`}
+                  src={model.referenceImage}
                   alt={model.name}
                   className="model-avatar"
                 />
                 <span className="model-name">{model.name}</span>
+                <button
+                  onClick={(e) => handleDeleteModel(model.id, e)}
+                  style={{
+                    marginLeft: 'auto',
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#f66',
+                    cursor: 'pointer',
+                    fontSize: '16px'
+                  }}
+                  title="删除"
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
@@ -70,7 +125,7 @@ function App() {
 
         <main className="workspace">
           {selectedModel ? (
-            <ModelWorkspace model={selectedModel} onRefresh={() => handleModelSelect(selectedModel)} />
+            <ModelWorkspace model={selectedModel} onRefresh={refreshModels} />
           ) : (
             <div className="empty-state">
               <h2>欢迎使用模特图生成器</h2>
@@ -85,7 +140,7 @@ function App() {
           onClose={() => setShowCreateModal(false)}
           onSuccess={() => {
             setShowCreateModal(false)
-            fetchModels()
+            refreshModels()
           }}
         />
       )}
@@ -119,19 +174,20 @@ function CreateModelModal({ onClose, onSuccess }) {
     setError('')
 
     try {
-      const formData = new FormData()
-      formData.append('name', name)
-      formData.append('referenceImage', image)
-
-      await axios.post(`${API_BASE_URL}/api/models`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      })
-
+      const base64 = await fileToBase64(image)
+      const newModel = {
+        id: uuid(),
+        name,
+        referenceImage: base64,
+        createdAt: new Date().toISOString(),
+        generatedImages: []
+      }
+      const data = loadData()
+      data.push(newModel)
+      saveData(data)
       onSuccess()
     } catch (err) {
-      setError(err.response?.data?.error || '创建失败')
+      setError('创建失败：' + err.message)
     } finally {
       setLoading(false)
     }
@@ -218,22 +274,36 @@ function ModelWorkspace({ model, onRefresh }) {
     setError('')
 
     try {
-      const formData = new FormData()
-      formData.append('sceneImage', sceneImage)
-      formData.append('prompt', prompt)
+      const sceneBase64 = await fileToBase64(sceneImage)
+      const generationPrompt = prompt || '将模特放置在提供的场景背景中，保持模特的姿势和外观，自然地融合到新场景中'
 
-      await axios.post(`${API_BASE_URL}/api/models/${model.id}/generate`, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
+      // 调用 Pages Functions API 生成图片
+      const response = await axios.post('/api/generate', {
+        prompt: generationPrompt
       })
+
+      const generatedUrl = response.data.url
+
+      // 更新 localStorage
+      const data = loadData()
+      const modelIdx = data.findIndex(m => m.id === model.id)
+      if (modelIdx !== -1) {
+        data[modelIdx].generatedImages.push({
+          id: uuid(),
+          url: generatedUrl,
+          sceneImage: sceneBase64,
+          prompt: generationPrompt,
+          createdAt: new Date().toISOString()
+        })
+        saveData(data)
+      }
 
       setSceneImage(null)
       setScenePreview(null)
       setPrompt('')
       onRefresh()
     } catch (err) {
-      setError(err.response?.data?.error || '生成失败')
+      setError(err.response?.data?.error || err.message || '生成失败')
     } finally {
       setLoading(false)
     }
@@ -253,7 +323,6 @@ function ModelWorkspace({ model, onRefresh }) {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       console.error('下载失败:', error)
-      // 如果下载失败，尝试直接打开
       window.open(imageUrl, '_blank')
     }
   }
@@ -262,7 +331,7 @@ function ModelWorkspace({ model, onRefresh }) {
     <div className="model-workspace">
       <div className="model-header">
         <img
-          src={`${API_BASE_URL}${model.referenceImage}`}
+          src={model.referenceImage}
           alt={model.name}
         />
         <div className="model-info">
@@ -323,7 +392,7 @@ function ModelWorkspace({ model, onRefresh }) {
           <h3 style={{ marginBottom: '15px', color: '#333' }}>模特参考图</h3>
           <div className="upload-area has-image">
             <img
-              src={`${API_BASE_URL}${model.referenceImage}`}
+              src={model.referenceImage}
               alt="模特参考"
             />
           </div>
@@ -342,7 +411,7 @@ function ModelWorkspace({ model, onRefresh }) {
                   <p style={{ fontSize: '0.75rem', color: '#999' }}>
                     {new Date(img.createdAt).toLocaleString('zh-CN')}
                   </p>
-                  <button 
+                  <button
                     className="download-btn"
                     onClick={() => handleDownloadImage(img.url, `model-${model.name}-${img.id}.png`)}
                     style={{
@@ -357,14 +426,6 @@ function ModelWorkspace({ model, onRefresh }) {
                       fontWeight: '500',
                       width: '100%',
                       transition: 'all 0.3s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.transform = 'translateY(-2px)'
-                      e.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)'
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.transform = 'translateY(0)'
-                      e.target.style.boxShadow = 'none'
                     }}
                   >
                     💾 下载图片
