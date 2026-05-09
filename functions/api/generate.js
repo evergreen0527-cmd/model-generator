@@ -1,5 +1,5 @@
 // Cloudflare Pages Function: POST /api/generate
-// 47claude 的 gpt-image-2 使用 chat/completions 接口（对话式图像生成）
+// 47claude 的 gpt-image-2 使用 OpenAI Responses API (/v1/responses)
 
 export async function onRequestPost(context) {
   const { request, env } = context
@@ -12,31 +12,27 @@ export async function onRequestPost(context) {
       return Response.json({ error: '缺少 prompt 参数' }, { status: 400 })
     }
 
-    const baseUrl = env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
+    const baseUrl = (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
     const apiKey = env.OPENAI_API_KEY
     const model = env.IMAGE_MODEL || 'gpt-image-2'
-    const apiGroup = env.API_GROUP || 'GPT'
 
     if (!apiKey) {
       return Response.json({ error: '服务端未配置 OPENAI_API_KEY' }, { status: 500 })
     }
 
-    // 调用 chat/completions 接口
-    const apiResp = await fetch(`${baseUrl}/chat/completions`, {
+    // 调用 Responses API 端点
+    const apiResp = await fetch(`${baseUrl}/responses`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        // 指定分组（47claude / one-api / new-api 通用约定）
-        'X-User-Group': apiGroup,
-        'X-OpenAI-Group': apiGroup
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
         model,
-        messages: [
-          { role: 'user', content: prompt }
-        ],
-        stream: false
+        input: prompt,
+        reasoning: { effort: 'high' },
+        store: false,
+        tools: [{ type: 'image_generation' }]
       })
     })
 
@@ -49,48 +45,78 @@ export async function onRequestPost(context) {
       }, { status: apiResp.status })
     }
 
-    // 提取响应内容
-    const message = data.choices?.[0]?.message || {}
-    const content = typeof message.content === 'string' ? message.content : ''
-
-    // 尝试多种格式解析图片 URL
+    // 解析 Responses API 响应，提取图片
     let imageUrl = null
+    let textContent = ''
 
-    // 1. Markdown 图片格式：![alt](url)
-    const mdMatch = content.match(/!\[[^\]]*\]\(([^)]+)\)/)
-    if (mdMatch) imageUrl = mdMatch[1]
+    // Responses API 的 output 是一个数组
+    const output = Array.isArray(data.output) ? data.output : []
 
-    // 2. data URI 格式（base64）
-    if (!imageUrl) {
-      const dataMatch = content.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/)
-      if (dataMatch) imageUrl = dataMatch[0]
+    for (const item of output) {
+      if (!item || typeof item !== 'object') continue
+
+      // 1. image_generation_call 类型：result 是 base64
+      if (item.type === 'image_generation_call' && item.result) {
+        imageUrl = `data:image/png;base64,${item.result}`
+        break
+      }
+
+      // 2. message 类型：遍历 content
+      if (item.type === 'message' && Array.isArray(item.content)) {
+        for (const c of item.content) {
+          if (!c) continue
+          // output_image / image 类型
+          if ((c.type === 'output_image' || c.type === 'image') && (c.image_url || c.url)) {
+            imageUrl = c.image_url || c.url
+            break
+          }
+          // image_url 可能是对象 { url: "..." }
+          if (c.image_url && typeof c.image_url === 'object' && c.image_url.url) {
+            imageUrl = c.image_url.url
+            break
+          }
+          // 纯文本内容收集起来用于兜底解析
+          if ((c.type === 'output_text' || c.type === 'text') && typeof c.text === 'string') {
+            textContent += c.text + '\n'
+          }
+        }
+        if (imageUrl) break
+      }
     }
 
-    // 3. 图片扩展名的 URL
-    if (!imageUrl) {
-      const imgUrlMatch = content.match(/https?:\/\/[^\s)"'<>]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s)"'<>]*)?/i)
-      if (imgUrlMatch) imageUrl = imgUrlMatch[0]
-    }
+    // 兜底：从 output_text 或文本内容中正则解析图片
+    const fallbackText = data.output_text || textContent
+    if (!imageUrl && typeof fallbackText === 'string' && fallbackText) {
+      // 1. Markdown 图片
+      const mdMatch = fallbackText.match(/!\[[^\]]*\]\(([^)]+)\)/)
+      if (mdMatch) imageUrl = mdMatch[1]
 
-    // 4. message.images 字段（某些实现）
-    if (!imageUrl && Array.isArray(message.images) && message.images[0]) {
-      imageUrl = typeof message.images[0] === 'string' ? message.images[0] : message.images[0].url
-    }
+      // 2. data URI
+      if (!imageUrl) {
+        const dataMatch = fallbackText.match(/data:image\/[^;]+;base64,[A-Za-z0-9+/=]+/)
+        if (dataMatch) imageUrl = dataMatch[0]
+      }
 
-    // 5. 兜底：任意 URL
-    if (!imageUrl) {
-      const anyUrlMatch = content.match(/https?:\/\/[^\s)"'<>]+/)
-      if (anyUrlMatch) imageUrl = anyUrlMatch[0]
+      // 3. 图片后缀的 URL
+      if (!imageUrl) {
+        const imgUrlMatch = fallbackText.match(/https?:\/\/[^\s)"'<>]+\.(?:png|jpg|jpeg|webp|gif)(?:\?[^\s)"'<>]*)?/i)
+        if (imgUrlMatch) imageUrl = imgUrlMatch[0]
+      }
+
+      // 4. 任意 URL
+      if (!imageUrl) {
+        const anyUrl = fallbackText.match(/https?:\/\/[^\s)"'<>]+/)
+        if (anyUrl) imageUrl = anyUrl[0]
+      }
     }
 
     if (imageUrl) {
       return Response.json({ url: imageUrl })
     }
 
-    // 没解析到，返回原始 content 供排查
     return Response.json({
       error: '响应中未找到图片 URL',
-      content: content.substring(0, 500),
+      preview: (fallbackText || '').substring(0, 500),
       detail: data
     }, { status: 500 })
   } catch (err) {
