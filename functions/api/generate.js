@@ -20,6 +20,12 @@ export async function onRequestPost(context) {
       return Response.json({ error: '服务端未配置 OPENAI_API_KEY' }, { status: 500 })
     }
 
+    // 检查请求体大小（防止超大 base64 导致超时）
+    const bodyText = JSON.stringify(body)
+    if (bodyText.length > 5 * 1024 * 1024) {
+      return Response.json({ error: '请求体过大（超过 5MB），请减少上传图片数量或压缩图片' }, { status: 413 })
+    }
+
     // 构造 input：纯文本 或 多模态（文字 + 图片）
     let input
     if (images && images.length > 0) {
@@ -35,7 +41,10 @@ export async function onRequestPost(context) {
       input = prompt
     }
 
-    // 调用 Responses API 端点
+    // 调用 Responses API 端点（设置 80 秒超时）
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 80000)
+
     const apiResp = await fetch(`${baseUrl}/responses`, {
       method: 'POST',
       headers: {
@@ -48,8 +57,10 @@ export async function onRequestPost(context) {
         reasoning: { effort: 'high' },
         store: false,
         tools: [{ type: 'image_generation' }]
-      })
+      }),
+      signal: controller.signal
     })
+    clearTimeout(timeoutId)
 
     const data = await apiResp.json()
 
@@ -135,6 +146,9 @@ export async function onRequestPost(context) {
       detail: data
     }, { status: 500 })
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return Response.json({ error: '生成超时（模型处理时间超过 80 秒），请减少上传图片数量、缩小图片尺寸后重试' }, { status: 504 })
+    }
     return Response.json({ error: err.message || '服务器内部错误' }, { status: 500 })
   }
 }

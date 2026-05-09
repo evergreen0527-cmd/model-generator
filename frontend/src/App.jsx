@@ -8,13 +8,35 @@ const DATA_KEY = 'data'
 const CHAT_KEY = 'chat_messages'
 const LEGACY_KEY = 'model_generator_data'
 
-// 文件转 base64
+// 文件转 base64（带压缩，限制最大 2MB）
 const fileToBase64 = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.readAsDataURL(file)
     reader.onload = () => resolve(reader.result)
     reader.onerror = (error) => reject(error)
+  })
+}
+
+// 压缩图片（限制尺寸和文件大小）
+const compressImage = (base64, maxWidth = 1024, maxHeight = 1024, quality = 0.8) => {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      let { width, height } = img
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height)
+        width *= ratio
+        height *= ratio
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(img, 0, 0, width, height)
+      resolve(canvas.toDataURL('image/jpeg', quality))
+    }
+    img.src = base64
   })
 }
 
@@ -635,8 +657,9 @@ function ChatPage() {
     files.forEach(file => {
       const reader = new FileReader()
       reader.readAsDataURL(file)
-      reader.onload = () => {
-        setUploadedImages(prev => [...prev, { id: uuid(), base64: reader.result, preview: URL.createObjectURL(file) }])
+      reader.onload = async () => {
+        const compressed = await compressImage(reader.result, 1024, 1024, 0.8)
+        setUploadedImages(prev => [...prev, { id: uuid(), base64: compressed, preview: URL.createObjectURL(file) }])
       }
     })
     e.target.value = ''
@@ -670,7 +693,7 @@ function ChatPage() {
       const response = await axios.post('/api/generate', {
         prompt: inputText || '根据参考图片生成图片',
         images: currentImages.map(img => img.base64)
-      })
+      }, { timeout: 90000 }) // 90 秒超时
 
       const assistantMsg = {
         id: uuid(),
@@ -684,7 +707,13 @@ function ChatPage() {
       setMessages(finalMessages)
       await saveChatData(finalMessages)
     } catch (err) {
-      setError(err.response?.data?.error || err.message || '生成失败')
+      let errMsg = err.response?.data?.error || err.message || '生成失败'
+      if (err.code === 'ECONNABORTED' || err.message?.includes('524') || err.message?.includes('timeout')) {
+        errMsg = '生成超时（模型处理时间较长），请减少上传图片数量或重试'
+      } else if (err.response?.data?.detail) {
+        errMsg = `${errMsg}（${JSON.stringify(err.response.data.detail).substring(0, 200)}）`
+      }
+      setError(errMsg)
     } finally {
       setLoading(false)
     }
