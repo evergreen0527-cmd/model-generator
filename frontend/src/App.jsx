@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import './App.css'
 
 const DB_NAME = 'model_generator_db'
 const STORE_NAME = 'models'
 const DATA_KEY = 'data'
+const CHAT_KEY = 'chat_messages'
 const LEGACY_KEY = 'model_generator_data'
 
 // 文件转 base64
@@ -96,10 +97,33 @@ const saveData = async (models) => {
   }
 }
 
+// 读取聊天数据
+const loadChatData = async () => {
+  try {
+    const data = await idbGet(CHAT_KEY)
+    if (Array.isArray(data)) return data
+    return []
+  } catch (e) {
+    console.error('读取聊天数据失败:', e)
+    return []
+  }
+}
+
+// 保存聊天数据
+const saveChatData = async (messages) => {
+  try {
+    await idbSet(CHAT_KEY, messages)
+  } catch (e) {
+    console.error('保存聊天数据失败:', e)
+    alert('保存聊天记录失败：' + (e.message || '存储空间不足'))
+  }
+}
+
 function App() {
   const [models, setModels] = useState([])
   const [selectedModel, setSelectedModel] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [activeTab, setActiveTab] = useState('models')
 
   useEffect(() => {
     loadData().then(setModels)
@@ -135,58 +159,79 @@ function App() {
         <p>基于 AI 的模特图片生成平台</p>
       </header>
 
-      <div className="main-content">
-        <aside className="sidebar">
-          <h2>我的模特</h2>
-          <div className="model-list">
-            {models.map(model => (
-              <div
-                key={model.id}
-                className={`model-item ${selectedModel?.id === model.id ? 'active' : ''}`}
-                onClick={() => handleModelSelect(model)}
-              >
-                <img
-                  src={model.referenceImage}
-                  alt={model.name}
-                  className="model-avatar"
-                />
-                <span className="model-name">{model.name}</span>
-                <button
-                  onClick={(e) => handleDeleteModel(model.id, e)}
-                  style={{
-                    marginLeft: 'auto',
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#f66',
-                    cursor: 'pointer',
-                    fontSize: '16px'
-                  }}
-                  title="删除"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            className="create-model-btn"
-            onClick={() => setShowCreateModal(true)}
-          >
-            + 创建新模特
-          </button>
-        </aside>
+      <nav className="tab-nav">
+        <button
+          className={`tab-btn ${activeTab === 'models' ? 'active' : ''}`}
+          onClick={() => setActiveTab('models')}
+        >
+          👤 模特管理
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+          onClick={() => setActiveTab('chat')}
+        >
+          💬 AI 生图聊天
+        </button>
+      </nav>
 
-        <main className="workspace">
-          {selectedModel ? (
-            <ModelWorkspace model={selectedModel} onRefresh={refreshModels} />
-          ) : (
-            <div className="empty-state">
-              <h2>欢迎使用模特图生成器</h2>
-              <p>请先创建或选择一个模特开始使用</p>
+      {activeTab === 'models' ? (
+        <div className="main-content">
+          <aside className="sidebar">
+            <h2>我的模特</h2>
+            <div className="model-list">
+              {models.map(model => (
+                <div
+                  key={model.id}
+                  className={`model-item ${selectedModel?.id === model.id ? 'active' : ''}`}
+                  onClick={() => handleModelSelect(model)}
+                >
+                  <img
+                    src={model.referenceImage}
+                    alt={model.name}
+                    className="model-avatar"
+                  />
+                  <span className="model-name">{model.name}</span>
+                  <button
+                    onClick={(e) => handleDeleteModel(model.id, e)}
+                    style={{
+                      marginLeft: 'auto',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#f66',
+                      cursor: 'pointer',
+                      fontSize: '16px'
+                    }}
+                    title="删除"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
-          )}
+            <button
+              className="create-model-btn"
+              onClick={() => setShowCreateModal(true)}
+            >
+              + 创建新模特
+            </button>
+          </aside>
+
+          <main className="workspace">
+            {selectedModel ? (
+              <ModelWorkspace model={selectedModel} onRefresh={refreshModels} />
+            ) : (
+              <div className="empty-state">
+                <h2>欢迎使用模特图生成器</h2>
+                <p>请先创建或选择一个模特开始使用</p>
+              </div>
+            )}
+          </main>
+        </div>
+      ) : (
+        <main className="workspace chat-workspace">
+          <ChatPage />
         </main>
-      </div>
+      )}
 
       {showCreateModal && (
         <CreateModelModal
@@ -561,6 +606,230 @@ function ModelWorkspace({ model, onRefresh }) {
             ) : (
               <p style={{ textAlign: 'center', color: '#999', padding: '40px' }}>暂无历史生成记录</p>
             )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChatPage() {
+  const [messages, setMessages] = useState([])
+  const [inputText, setInputText] = useState('')
+  const [uploadedImages, setUploadedImages] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [lightboxImage, setLightboxImage] = useState(null)
+  const messagesEndRef = useRef(null)
+
+  useEffect(() => {
+    loadChatData().then(setMessages)
+  }, [])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, loading])
+
+  const handleImageUpload = (e) => {
+    const files = Array.from(e.target.files)
+    files.forEach(file => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = () => {
+        setUploadedImages(prev => [...prev, { id: uuid(), base64: reader.result, preview: URL.createObjectURL(file) }])
+      }
+    })
+    e.target.value = ''
+  }
+
+  const removeUploadedImage = (id) => {
+    setUploadedImages(prev => prev.filter(img => img.id !== id))
+  }
+
+  const handleSend = async () => {
+    if (!inputText.trim() && uploadedImages.length === 0) return
+
+    const userMsg = {
+      id: uuid(),
+      role: 'user',
+      content: inputText,
+      images: uploadedImages.map(img => img.base64),
+      createdAt: new Date().toISOString()
+    }
+
+    const newMessages = [...messages, userMsg]
+    setMessages(newMessages)
+    await saveChatData(newMessages)
+    setInputText('')
+    const currentImages = [...uploadedImages]
+    setUploadedImages([])
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await axios.post('/api/generate', {
+        prompt: inputText || '根据参考图片生成图片',
+        images: currentImages.map(img => img.base64)
+      })
+
+      const assistantMsg = {
+        id: uuid(),
+        role: 'assistant',
+        content: '图片已生成',
+        images: [response.data.url],
+        createdAt: new Date().toISOString()
+      }
+
+      const finalMessages = [...newMessages, assistantMsg]
+      setMessages(finalMessages)
+      await saveChatData(finalMessages)
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || '生成失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handleDownload = async (url) => {
+    try {
+      const res = await fetch(url)
+      const blob = await res.blob()
+      const a = document.createElement('a')
+      a.href = window.URL.createObjectURL(blob)
+      a.download = `chat-image-${Date.now()}.png`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(a.href)
+    } catch {
+      window.open(url, '_blank')
+    }
+  }
+
+  const handleClear = async () => {
+    if (!confirm('确定清空所有聊天记录吗？')) return
+    setMessages([])
+    await saveChatData([])
+  }
+
+  return (
+    <div className="chat-page">
+      <div className="chat-header">
+        <h2>💬 AI 生图聊天</h2>
+        <button className="btn btn-secondary btn-sm" onClick={handleClear}>🗑 清空记录</button>
+      </div>
+
+      <div className="chat-list">
+        {messages.length === 0 && (
+          <div className="chat-empty">
+            <div className="chat-empty-icon">🎨</div>
+            <p>上传图片并描述需求，AI 将为您生成图片</p>
+            <p style={{ fontSize: '0.85rem', color: '#999' }}>
+              支持上传多张参考图，AI 会结合图片和文字描述进行生成
+            </p>
+          </div>
+        )}
+        {messages.map(msg => (
+          <div key={msg.id} className={`chat-message ${msg.role}`}>
+            <div className="chat-avatar">
+              {msg.role === 'user' ? '👤' : '🤖'}
+            </div>
+            <div className="chat-bubble">
+              {msg.content && <p className="chat-text">{msg.content}</p>}
+              {msg.images && msg.images.length > 0 && (
+                <div className={`chat-images ${msg.images.length > 1 ? 'multi' : ''}`}>
+                  {msg.images.map((img, idx) => (
+                    <img
+                      key={idx}
+                      src={img}
+                      alt="图片"
+                      onClick={() => setLightboxImage(img)}
+                      className="chat-image"
+                    />
+                  ))}
+                </div>
+              )}
+              <span className="chat-time">
+                {new Date(msg.createdAt).toLocaleString('zh-CN')}
+              </span>
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="chat-message assistant">
+            <div className="chat-avatar">🤖</div>
+            <div className="chat-bubble">
+              <div className="chat-loading">
+                <span className="loading"></span> AI 正在生成图片...
+              </div>
+            </div>
+          </div>
+        )}
+        {error && (
+          <div className="chat-error">
+            ❌ {error}
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="chat-input-area">
+        {uploadedImages.length > 0 && (
+          <div className="chat-upload-preview">
+            {uploadedImages.map(img => (
+              <div key={img.id} className="chat-preview-item">
+                <img src={img.preview} alt="预览" />
+                <button onClick={() => removeUploadedImage(img.id)}>✕</button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="chat-input-row">
+          <label className="chat-upload-btn" title="上传图片">
+            📎
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={handleImageUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+          <textarea
+            className="chat-textarea"
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="描述你想要的图片效果，支持上传多张参考图..."
+            rows={2}
+          />
+          <button
+            className="chat-send-btn"
+            onClick={handleSend}
+            disabled={loading || (!inputText.trim() && uploadedImages.length === 0)}
+          >
+            {loading ? <span className="loading"></span> : '➤'}
+          </button>
+        </div>
+      </div>
+
+      {lightboxImage && (
+        <div className="lightbox-overlay" onClick={() => setLightboxImage(null)}>
+          <div className="lightbox-content" onClick={e => e.stopPropagation()}>
+            <button className="lightbox-close" onClick={() => setLightboxImage(null)}>✕</button>
+            <img src={lightboxImage} alt="大图预览" />
+            <div className="lightbox-info">
+              <button className="btn btn-primary" onClick={() => handleDownload(lightboxImage)}>
+                💾 下载
+              </button>
+            </div>
           </div>
         </div>
       )}

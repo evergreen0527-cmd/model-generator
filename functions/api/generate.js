@@ -6,10 +6,10 @@ export async function onRequestPost(context) {
 
   try {
     const body = await request.json()
-    const { prompt } = body
+    const { prompt, images } = body
 
-    if (!prompt) {
-      return Response.json({ error: '缺少 prompt 参数' }, { status: 400 })
+    if (!prompt && (!images || images.length === 0)) {
+      return Response.json({ error: '缺少 prompt 或 images 参数' }, { status: 400 })
     }
 
     const baseUrl = (env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, '')
@@ -18,6 +18,21 @@ export async function onRequestPost(context) {
 
     if (!apiKey) {
       return Response.json({ error: '服务端未配置 OPENAI_API_KEY' }, { status: 500 })
+    }
+
+    // 构造 input：纯文本 或 多模态（文字 + 图片）
+    let input
+    if (images && images.length > 0) {
+      const content = []
+      if (prompt) {
+        content.push({ type: 'input_text', text: prompt })
+      }
+      images.forEach(img => {
+        content.push({ type: 'input_image', image_url: img })
+      })
+      input = [{ role: 'user', content }]
+    } else {
+      input = prompt
     }
 
     // 调用 Responses API 端点
@@ -29,7 +44,7 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model,
-        input: prompt,
+        input,
         reasoning: { effort: 'high' },
         store: false,
         tools: [{ type: 'image_generation' }]
