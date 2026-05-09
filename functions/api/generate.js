@@ -26,20 +26,9 @@ export async function onRequestPost(context) {
       return Response.json({ error: '请求体过大（超过 5MB），请减少上传图片数量或压缩图片' }, { status: 413 })
     }
 
-    // 构造 input：纯文本 或 多模态（文字 + 图片）
-    let input
-    if (images && images.length > 0) {
-      const content = []
-      if (prompt) {
-        content.push({ type: 'input_text', text: prompt })
-      }
-      images.forEach(img => {
-        content.push({ type: 'input_image', image_url: img })
-      })
-      input = [{ role: 'user', content }]
-    } else {
-      input = prompt
-    }
+    // 构造 input：47claude 不支持多模态 input_image，只传纯文本
+    // 如果用户传了图片，忽略图片仅用 prompt 文字生成
+    const input = prompt || '生成一张图片'
 
     // 调用 Responses API 端点（设置 80 秒超时）
     const controller = new AbortController()
