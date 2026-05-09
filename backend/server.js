@@ -207,6 +207,17 @@ app.delete('/api/models/:id', async (req, res) => {
   res.json({ message: '模特已删除' });
 });
 
+// 生产环境：提供前端静态文件
+if (process.env.NODE_ENV === 'production') {
+  const publicPath = path.join(__dirname, 'public');
+  app.use(express.static(publicPath));
+  
+  // 所有非API路由指向前端
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(publicPath, 'index.html'));
+  });
+}
+
 // 启动服务器
 app.listen(PORT, () => {
   console.log(`服务器运行在 http://localhost:${PORT}`);

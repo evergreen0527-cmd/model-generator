@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: model-generator-api
+    name: model-generator
     runtime: node
-    rootDir: backend
-    buildCommand: npm install
-    startCommand: node server.js
+    rootDir: .
+    buildCommand: cd frontend && npm install && npm run build && cp -r dist ../backend/public
+    startCommand: cd backend && npm install && node server.js
     envVars:
       - key: OPENAI_API_KEY
         sync: false
@@ -17,15 +17,3 @@ services:
       - key: PORT
         value: 10000
     healthCheckPath: /api/models
-
-  - type: static
-    name: model-generator
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    publishDir: dist
-    envVars:
-      - key: VITE_API_BASE_URL
-        fromService:
-          name: model-generator-api
-          type: web
-          property: url
