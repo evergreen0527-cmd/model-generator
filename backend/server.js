@@ -30,10 +30,18 @@ app.use(cors(corsOptions));
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 创建上传目录
-const uploadDir = path.join(__dirname, 'uploads');
+// 检测是否在 Vercel 环境
+const isVercel = !!process.env.VERCEL;
+
+// 创建上传目录 (Vercel 使用 /tmp 可写目录)
+const uploadDir = isVercel ? '/tmp/uploads' : path.join(__dirname, 'uploads');
 if (!fsSync.existsSync(uploadDir)) {
   fsSync.mkdirSync(uploadDir, { recursive: true });
+}
+
+// Vercel 环境下提供 uploads 目录访问
+if (isVercel) {
+  app.use('/uploads', express.static(uploadDir));
 }
 
 // 配置multer
@@ -68,9 +76,9 @@ const openai = new OpenAI({
   baseURL: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
 });
 
-// 数据持久化文件路径
-const dataFilePath = path.join(__dirname, 'data', 'models.json');
-const dataDir = path.join(__dirname, 'data');
+// 数据持久化文件路径 (Vercel 使用 /tmp)
+const dataDir = isVercel ? '/tmp/data' : path.join(__dirname, 'data');
+const dataFilePath = path.join(dataDir, 'models.json');
 
 // 确保数据目录存在
 async function ensureDataDir() {
@@ -218,7 +226,12 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// 启动服务器
-app.listen(PORT, () => {
-  console.log(`服务器运行在 http://localhost:${PORT}`);
-});
+// 启动服务器 (Vercel 环境不需要 listen)
+if (!isVercel) {
+  app.listen(PORT, () => {
+    console.log(`服务器运行在 http://localhost:${PORT}`);
+  });
+}
+
+// 导出 app 供 Vercel Serverless 使用
+module.exports = app;
