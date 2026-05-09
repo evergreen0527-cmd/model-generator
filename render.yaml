@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: model-generator-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://47claude.com/v1
+      - key: IMAGE_MODEL
+        value: gpt-image2
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /api/models
+
+  - type: static
+    name: model-generator
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    publishDir: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          name: model-generator-api
+          type: web
+          property: url
