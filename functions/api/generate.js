@@ -15,6 +15,7 @@ export async function onRequestPost(context) {
     const baseUrl = env.OPENAI_BASE_URL || 'https://api.openai.com/v1'
     const apiKey = env.OPENAI_API_KEY
     const model = env.IMAGE_MODEL || 'gpt-image-2'
+    const apiGroup = env.API_GROUP || 'GPT'
 
     if (!apiKey) {
       return Response.json({ error: '服务端未配置 OPENAI_API_KEY' }, { status: 500 })
@@ -25,7 +26,10 @@ export async function onRequestPost(context) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
+        'Authorization': `Bearer ${apiKey}`,
+        // 指定分组（47claude / one-api / new-api 通用约定）
+        'X-User-Group': apiGroup,
+        'X-OpenAI-Group': apiGroup
       },
       body: JSON.stringify({
         model,
