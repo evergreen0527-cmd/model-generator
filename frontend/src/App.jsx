@@ -2,7 +2,10 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 import './App.css'
 
-const STORAGE_KEY = 'model_generator_data'
+const DB_NAME = 'model_generator_db'
+const STORE_NAME = 'models'
+const DATA_KEY = 'data'
+const LEGACY_KEY = 'model_generator_data'
 
 // 文件转 base64
 const fileToBase64 = (file) => {
@@ -24,23 +27,72 @@ const uuid = () => {
   })
 }
 
-// 读取数据
-const loadData = () => {
+// IndexedDB 封装（容量 GB 级，远大于 localStorage 的 5MB）
+const openDB = () => new Promise((resolve, reject) => {
+  const req = indexedDB.open(DB_NAME, 1)
+  req.onupgradeneeded = () => {
+    const db = req.result
+    if (!db.objectStoreNames.contains(STORE_NAME)) {
+      db.createObjectStore(STORE_NAME)
+    }
+  }
+  req.onsuccess = () => resolve(req.result)
+  req.onerror = () => reject(req.error)
+})
+
+const idbGet = async (key) => {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readonly')
+    const req = tx.objectStore(STORE_NAME).get(key)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+const idbSet = async (key, value) => {
+  const db = await openDB()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, 'readwrite')
+    tx.objectStore(STORE_NAME).put(value, key)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
+// 读取数据（自动迁移 localStorage 旧数据）
+const loadData = async () => {
   try {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : []
-  } catch {
+    const data = await idbGet(DATA_KEY)
+    if (Array.isArray(data)) return data
+
+    // 迁移 localStorage 旧数据
+    try {
+      const legacy = localStorage.getItem(LEGACY_KEY)
+      if (legacy) {
+        const parsed = JSON.parse(legacy)
+        if (Array.isArray(parsed) && parsed.length) {
+          await idbSet(DATA_KEY, parsed)
+          localStorage.removeItem(LEGACY_KEY)
+          return parsed
+        }
+      }
+    } catch {}
+    return []
+  } catch (e) {
+    console.error('读取数据失败:', e)
     return []
   }
 }
 
 // 保存数据
-const saveData = (models) => {
+const saveData = async (models) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(models))
+    await idbSet(DATA_KEY, models)
   } catch (e) {
     console.error('保存数据失败:', e)
-    alert('本地存储空间不足，请删除部分历史数据')
+    alert('保存失败：' + (e.message || '存储空间不足'))
   }
 }
 
@@ -50,11 +102,11 @@ function App() {
   const [showCreateModal, setShowCreateModal] = useState(false)
 
   useEffect(() => {
-    setModels(loadData())
+    loadData().then(setModels)
   }, [])
 
-  const refreshModels = () => {
-    const data = loadData()
+  const refreshModels = async () => {
+    const data = await loadData()
     setModels(data)
     if (selectedModel) {
       const updated = data.find(m => m.id === selectedModel.id)
@@ -66,11 +118,12 @@ function App() {
     setSelectedModel(model)
   }
 
-  const handleDeleteModel = (modelId, e) => {
+  const handleDeleteModel = async (modelId, e) => {
     e.stopPropagation()
     if (!confirm('确定删除该模特及其所有生成历史吗？')) return
-    const data = loadData().filter(m => m.id !== modelId)
-    saveData(data)
+    const current = await loadData()
+    const data = current.filter(m => m.id !== modelId)
+    await saveData(data)
     if (selectedModel?.id === modelId) setSelectedModel(null)
     setModels(data)
   }
@@ -182,9 +235,9 @@ function CreateModelModal({ onClose, onSuccess }) {
         createdAt: new Date().toISOString(),
         generatedImages: []
       }
-      const data = loadData()
+      const data = await loadData()
       data.push(newModel)
-      saveData(data)
+      await saveData(data)
       onSuccess()
     } catch (err) {
       setError('创建失败：' + err.message)
@@ -284,8 +337,8 @@ function ModelWorkspace({ model, onRefresh }) {
 
       const generatedUrl = response.data.url
 
-      // 更新 localStorage
-      const data = loadData()
+      // 更新 IndexedDB
+      const data = await loadData()
       const modelIdx = data.findIndex(m => m.id === model.id)
       if (modelIdx !== -1) {
         data[modelIdx].generatedImages.push({
@@ -295,13 +348,13 @@ function ModelWorkspace({ model, onRefresh }) {
           prompt: generationPrompt,
           createdAt: new Date().toISOString()
         })
-        saveData(data)
+        await saveData(data)
       }
 
       setSceneImage(null)
       setScenePreview(null)
       setPrompt('')
-      onRefresh()
+      await onRefresh()
     } catch (err) {
       setError(err.response?.data?.error || err.message || '生成失败')
     } finally {
