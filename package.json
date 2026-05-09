@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "cloudflared": "^0.7.1",
     "http-proxy": "^1.18.1"
   }
 }
