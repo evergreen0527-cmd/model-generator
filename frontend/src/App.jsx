@@ -308,6 +308,8 @@ function ModelWorkspace({ model, onRefresh }) {
   const [prompt, setPrompt] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [lightboxImage, setLightboxImage] = useState(null)
+  const [showHistory, setShowHistory] = useState(false)
 
   const handleSceneImageChange = (e) => {
     const file = e.target.files[0]
@@ -315,6 +317,8 @@ function ModelWorkspace({ model, onRefresh }) {
       setSceneImage(file)
       setScenePreview(URL.createObjectURL(file))
     }
+    // 清空 input value，确保下次选同一个文件也能触发 onChange
+    e.target.value = ''
   }
 
   const handleGenerate = async () => {
@@ -380,6 +384,17 @@ function ModelWorkspace({ model, onRefresh }) {
     }
   }
 
+  const handleDeleteHistoryImage = async (imageId) => {
+    if (!confirm('确定删除这张历史图片吗？')) return
+    const data = await loadData()
+    const modelIdx = data.findIndex(m => m.id === model.id)
+    if (modelIdx !== -1) {
+      data[modelIdx].generatedImages = data[modelIdx].generatedImages.filter(img => img.id !== imageId)
+      await saveData(data)
+      await onRefresh()
+    }
+  }
+
   return (
     <div className="model-workspace">
       <div className="model-header">
@@ -391,6 +406,12 @@ function ModelWorkspace({ model, onRefresh }) {
           <h2>{model.name}</h2>
           <p>创建于 {new Date(model.createdAt).toLocaleDateString('zh-CN')}</p>
           <p>已生成 {model.generatedImages?.length || 0} 张图片</p>
+          <button
+            className="btn btn-secondary history-btn"
+            onClick={() => setShowHistory(true)}
+          >
+            📜 查看历史 ({model.generatedImages?.length || 0})
+          </button>
         </div>
       </div>
 
@@ -456,8 +477,8 @@ function ModelWorkspace({ model, onRefresh }) {
         <div>
           <h3 style={{ marginBottom: '15px', color: '#333' }}>已生成的图片</h3>
           <div className="generated-images">
-            {model.generatedImages.map(img => (
-              <div key={img.id} className="generated-image-card">
+            {model.generatedImages.slice().reverse().map(img => (
+              <div key={img.id} className="generated-image-card" onClick={() => setLightboxImage(img)}>
                 <img src={img.url} alt="生成的图片" />
                 <div className="image-info">
                   <p>{img.prompt}</p>
@@ -466,7 +487,7 @@ function ModelWorkspace({ model, onRefresh }) {
                   </p>
                   <button
                     className="download-btn"
-                    onClick={() => handleDownloadImage(img.url, `model-${model.name}-${img.id}.png`)}
+                    onClick={(e) => { e.stopPropagation(); handleDownloadImage(img.url, `model-${model.name}-${img.id}.png`) }}
                     style={{
                       marginTop: '8px',
                       padding: '6px 12px',
@@ -486,6 +507,60 @@ function ModelWorkspace({ model, onRefresh }) {
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox 大图预览 */}
+      {lightboxImage && (
+        <div className="lightbox-overlay" onClick={() => setLightboxImage(null)}>
+          <div className="lightbox-content" onClick={e => e.stopPropagation()}>
+            <button className="lightbox-close" onClick={() => setLightboxImage(null)}>✕</button>
+            <img src={lightboxImage.url} alt="大图预览" />
+            <div className="lightbox-info">
+              <p>{lightboxImage.prompt}</p>
+              <p style={{ fontSize: '0.85rem', color: '#ccc' }}>
+                {new Date(lightboxImage.createdAt).toLocaleString('zh-CN')}
+              </p>
+              <button className="btn btn-primary" onClick={() => handleDownloadImage(lightboxImage.url, `model-${model.name}-${lightboxImage.id}.png`)}>
+                💾 下载
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 历史记录弹窗 */}
+      {showHistory && (
+        <div className="modal-overlay" onClick={() => setShowHistory(false)}>
+          <div className="modal modal-wide" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>📜 {model.name} 的历史生成记录</h3>
+              <button className="btn btn-secondary" onClick={() => setShowHistory(false)}>✕ 关闭</button>
+            </div>
+            {model.generatedImages?.length > 0 ? (
+              <div className="history-grid">
+                {model.generatedImages.slice().reverse().map(img => (
+                  <div key={img.id} className="history-item">
+                    <img src={img.url} alt="历史图片" onClick={() => { setShowHistory(false); setLightboxImage(img) }} />
+                    <p>{img.prompt}</p>
+                    <p style={{ fontSize: '0.75rem', color: '#999' }}>
+                      {new Date(img.createdAt).toLocaleString('zh-CN')}
+                    </p>
+                    <div className="history-actions">
+                      <button className="btn btn-primary btn-sm" onClick={() => handleDownloadImage(img.url, `model-${model.name}-${img.id}.png`)}>
+                        💾 下载
+                      </button>
+                      <button className="btn btn-danger btn-sm" onClick={() => handleDeleteHistoryImage(img.id)}>
+                        🗑 删除
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ textAlign: 'center', color: '#999', padding: '40px' }}>暂无历史生成记录</p>
+            )}
           </div>
         </div>
       )}
