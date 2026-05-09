@@ -2,6 +2,7 @@ services:
   - type: web
     name: model-generator
     runtime: node
+    plan: free
     rootDir: .
     buildCommand: cd frontend && npm install && npm run build && cp -r dist ../backend/public
     startCommand: cd backend && npm install && node server.js
