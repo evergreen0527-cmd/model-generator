@@ -1,16 +1,23 @@
 export const handler = async (event, context) => {
   // ========== 解析 event ==========
-  // 阿里云 FC HTTP 触发器事件函数：event 是 Buffer，内容是 HTTP 请求体
-  let eventStr = ''
-  if (Buffer.isBuffer(event)) eventStr = event.toString('utf8')
-  else if (typeof event === 'string') eventStr = event
-  else if (typeof event === 'object' && event !== null) eventStr = JSON.stringify(event)
+  // 阿里云 FC HTTP 触发器事件格式：{ version, rawPath, headers, body, ... }
+  // event.body 才是请求体字符串
   
-  // 尝试解析为 JSON
   let body = {}
-  try { body = JSON.parse(eventStr || '{}') } catch {}
-  
-  // 提取 prompt（兼容多种格式）
+  if (typeof event === 'object' && event !== null) {
+    // event 是 HTTP 触发器事件对象
+    const rawBody = event.body || '{}'
+    try {
+      body = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody
+    } catch {
+      body = {}
+    }
+  } else if (typeof event === 'string') {
+    try { body = JSON.parse(event) } catch { body = {} }
+  } else if (Buffer.isBuffer(event)) {
+    try { body = JSON.parse(event.toString('utf8')) } catch { body = {} }
+  }
+
   const prompt = body.prompt || ''
 
   // 读取环境变量
@@ -22,7 +29,7 @@ export const handler = async (event, context) => {
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: '缺少 prompt', debug: eventStr.substring(0, 200) })
+      body: JSON.stringify({ error: '缺少 prompt' })
     }
   }
 
@@ -68,12 +75,10 @@ export const handler = async (event, context) => {
     
     for (const item of output) {
       if (!item || typeof item !== 'object') continue
-      // Responses API 图片生成结果
       if (item.type === 'image_generation_call' && item.result) {
         imageUrl = 'data:image/png;base64,' + item.result
         break
       }
-      // message 类型中的图片
       if (item.type === 'message' && Array.isArray(item.content)) {
         for (const c of item.content) {
           if (!c) continue
@@ -93,7 +98,6 @@ export const handler = async (event, context) => {
       }
     }
 
-    // 从文本中提取图片 URL（兜底）
     if (!imageUrl && textContent) {
       const mdMatch = textContent.match(/!\[[^\]]*\]\(([^)]+)\)/)
       if (mdMatch) imageUrl = mdMatch[1]
