@@ -5,18 +5,18 @@ export const handler = function (req, resp, context) {
   const method = (req.method || '').toUpperCase()
   
   if (method === 'OPTIONS') {
-    resp.setStatusCode(204)
+    resp.statusCode = 204
     resp.setHeader('Access-Control-Allow-Origin', '*')
     resp.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
     resp.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-    resp.send(Buffer.from(''))
+    resp.end('')
     return
   }
 
   if (method !== 'POST') {
-    resp.setStatusCode(405)
+    resp.statusCode = 405
     resp.setHeader('Content-Type', 'application/json')
-    resp.send(Buffer.from(JSON.stringify({ error: '仅支持 POST' })))
+    resp.end(JSON.stringify({ error: '仅支持 POST' }))
     return
   }
 
@@ -41,23 +41,23 @@ export const handler = function (req, resp, context) {
   const model = process.env.IMAGE_MODEL || 'gpt-image-2'
 
   if (!prompt) {
-    resp.setStatusCode(400)
+    resp.statusCode = 400
     resp.setHeader('Content-Type', 'application/json')
-    resp.send(Buffer.from(JSON.stringify({ error: '缺少 prompt', received: rawBody.substring(0, 200) })))
+    resp.end(JSON.stringify({ error: '缺少 prompt', received: rawBody.substring(0, 200) }))
     return
   }
 
   if (!apiKey) {
-    resp.setStatusCode(500)
+    resp.statusCode = 500
     resp.setHeader('Content-Type', 'application/json')
-    resp.send(Buffer.from(JSON.stringify({ error: '未配置 OPENAI_API_KEY 环境变量' })))
+    resp.end(JSON.stringify({ error: '未配置 OPENAI_API_KEY 环境变量' }))
     return
   }
 
   if (!baseUrl) {
-    resp.setStatusCode(500)
+    resp.statusCode = 500
     resp.setHeader('Content-Type', 'application/json')
-    resp.send(Buffer.from(JSON.stringify({ error: '未配置 OPENAI_BASE_URL 环境变量' })))
+    resp.end(JSON.stringify({ error: '未配置 OPENAI_BASE_URL 环境变量' }))
     return
   }
 
@@ -88,18 +88,18 @@ export const handler = function (req, resp, context) {
     res.setEncoding('utf8')
     res.on('data', (chunk) => { data += chunk })
     res.on('end', () => {
-      resp.setStatusCode(res.statusCode || 200)
+      resp.statusCode = res.statusCode || 200
       resp.setHeader('Content-Type', 'application/json')
       resp.setHeader('Access-Control-Allow-Origin', '*')
-      resp.send(Buffer.from(data))
+      resp.end(data)
     })
   })
 
   request.on('error', (err) => {
-    resp.setStatusCode(500)
+    resp.statusCode = 500
     resp.setHeader('Content-Type', 'application/json')
     resp.setHeader('Access-Control-Allow-Origin', '*')
-    resp.send(Buffer.from(JSON.stringify({ error: 'API 请求失败: ' + err.message })))
+    resp.end(JSON.stringify({ error: 'API 请求失败: ' + err.message }))
   })
 
   request.write(requestBody)
