@@ -411,10 +411,10 @@ function ModelWorkspace({ model, onRefresh }) {
       const compressedScene = await compressImage(sceneBase64, 1024, 1024, 0.8)
 
       // 调用 Pages Functions API 生成图片（传入模特图 + 场景图 + prompt）
-      const response = await axios.post(`${API_BASE_URL}/api/generate`, {
+      const response = await axios.post(`${API_BASE_URL}`, {
         prompt: generationPrompt,
         images: [compressedModel, compressedScene]
-      }, { timeout: 90000 })
+      }, { timeout: 570000 })
 
       const generatedUrl = response.data.url
 
@@ -704,10 +704,10 @@ function ChatPage() {
     setError('')
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/generate`, {
+      const response = await axios.post(`${API_BASE_URL}`, {
         prompt: inputText || '根据参考图片生成图片',
         images: currentImages.map(img => img.base64)
-      }, { timeout: 90000 }) // 90 秒超时
+      }, { timeout: 570000 }) // 570 秒超时（阿里云 FC 600 秒限制）
 
       const assistantMsg = {
         id: uuid(),
