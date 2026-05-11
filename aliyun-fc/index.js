@@ -13,21 +13,48 @@ export const handler = async (event, context) => {
 
   if (Buffer.isBuffer(event)) {
     const str = event.toString('utf8').trim()
-    // 空 Buffer = OPTIONS preflight 或无体请求，直接返回 CORS 头
     if (!str) {
       return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     }
-    try { body = JSON.parse(str) } catch { body = {} }
+    let parsed = {}
+    try { parsed = JSON.parse(str) } catch { parsed = {} }
+
+    // 阿里云 FC HTTP 触发器事件对象：{version, rawPath, headers, body, isBase64Encoded, ...}
+    // 请求体在 parsed.body 字段里，不是直接是请求体
+    if ('body' in parsed) {
+      const httpMethod = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
+      if (httpMethod === 'OPTIONS') {
+        return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+      }
+      let rawBody = parsed.body || ''
+      // 如果 body 是 base64 编码的，需要先解码
+      if (parsed.isBase64Encoded && rawBody) {
+        rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
+      }
+      try { body = JSON.parse(rawBody) } catch { body = {} }
+    } else {
+      // 兼容：如果没有 body 字段，直接当请求体使用
+      body = parsed
+    }
   } else if (typeof event === 'string') {
     const str = event.trim()
     if (!str) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
-    try { body = JSON.parse(str) } catch { body = {} }
+    let parsed = {}
+    try { parsed = JSON.parse(str) } catch { parsed = {} }
+    if ('body' in parsed) {
+      let rawBody = parsed.body || ''
+      if (parsed.isBase64Encoded && rawBody) rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
+      try { body = JSON.parse(rawBody) } catch { body = {} }
+    } else {
+      body = parsed
+    }
   } else if (typeof event === 'object' && event !== null) {
     method = (event.httpMethod || event.method || 'POST').toUpperCase()
     if (method === 'OPTIONS') {
       return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     }
-    const rawBody = event.body || '{}'
+    let rawBody = event.body || '{}'
+    if (event.isBase64Encoded && rawBody) rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
     try {
       body = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody
     } catch { body = {} }
@@ -41,20 +68,10 @@ export const handler = async (event, context) => {
   const model = process.env.IMAGE_MODEL || 'gpt-image-2'
 
   if (!prompt) {
-    // DEBUG: 返回详细信息帮助诊断
     return {
-      statusCode: 200,
+      statusCode: 400,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-      body: JSON.stringify({
-        error: '缺少 prompt',
-        debug: {
-          isBuffer: Buffer.isBuffer(event),
-          eventType: typeof event,
-          bufferStr: Buffer.isBuffer(event) ? event.toString('utf8').substring(0, 200) : null,
-          bodyKeys: Object.keys(body),
-          bodyPrompt: body.prompt
-        }
-      })
+      body: JSON.stringify({ error: '缺少 prompt' })
     }
   }
 
