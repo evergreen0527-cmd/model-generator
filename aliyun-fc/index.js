@@ -1,29 +1,17 @@
 export const handler = async (event, context) => {
-  // 解析 event
+  // ========== 解析 event ==========
+  // 阿里云 FC HTTP 触发器事件函数：event 是 Buffer，内容是 HTTP 请求体
+  let eventStr = ''
+  if (Buffer.isBuffer(event)) eventStr = event.toString('utf8')
+  else if (typeof event === 'string') eventStr = event
+  else if (typeof event === 'object' && event !== null) eventStr = JSON.stringify(event)
+  
+  // 尝试解析为 JSON
   let body = {}
-  try {
-    if (typeof event === 'string') body = JSON.parse(event)
-    else if (typeof event === 'object' && event !== null) body = event
-  } catch {}
-
-  // HTTP 触发器事件格式：{ httpMethod, headers, body, ... }
-  const httpMethod = (body.httpMethod || body.method || '').toUpperCase()
-  const rawBody = body.body || '{}'
-  const eventBody = typeof rawBody === 'string' ? (() => { try { return JSON.parse(rawBody) } catch { return {} } })() : rawBody
-  const prompt = eventBody.prompt || body.prompt || ''
-
-  // CORS 预检
-  if (httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type'
-      },
-      body: ''
-    }
-  }
+  try { body = JSON.parse(eventStr || '{}') } catch {}
+  
+  // 提取 prompt（兼容多种格式）
+  const prompt = body.prompt || ''
 
   // 读取环境变量
   const apiKey = process.env.OPENAI_API_KEY || ''
@@ -34,7 +22,7 @@ export const handler = async (event, context) => {
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: '缺少 prompt', eventKeys: Object.keys(body) })
+      body: JSON.stringify({ error: '缺少 prompt', debug: eventStr.substring(0, 200) })
     }
   }
 
@@ -54,7 +42,7 @@ export const handler = async (event, context) => {
     }
   }
 
-  // 使用 Node.js 18 内置 fetch 发送 API 请求（async/await 方式）
+  // ========== 调用 47claude API ==========
   try {
     const response = await fetch(baseUrl + '/responses', {
       method: 'POST',
@@ -73,16 +61,19 @@ export const handler = async (event, context) => {
 
     const data = await response.json()
 
-    // 解析 API 响应，提取图片
+    // ========== 解析图片 ==========
     let imageUrl = null
     let textContent = ''
     const output = Array.isArray(data.output) ? data.output : []
+    
     for (const item of output) {
       if (!item || typeof item !== 'object') continue
+      // Responses API 图片生成结果
       if (item.type === 'image_generation_call' && item.result) {
         imageUrl = 'data:image/png;base64,' + item.result
         break
       }
+      // message 类型中的图片
       if (item.type === 'message' && Array.isArray(item.content)) {
         for (const c of item.content) {
           if (!c) continue
@@ -123,7 +114,6 @@ export const handler = async (event, context) => {
         body: JSON.stringify({ url: imageUrl })
       }
     } else {
-      // 转发原始响应
       return {
         statusCode: response.status || 200,
         headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
