@@ -1,13 +1,32 @@
 export const handler = async (event, context) => {
+  const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS, GET',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400'
+  }
+
   // ========== 解析 event ==========
   // 阿里云 FC HTTP 触发器：event 是 Buffer，内容是 HTTP 请求体
   let body = {}
+  let method = 'POST'
+
   if (Buffer.isBuffer(event)) {
-    try { body = JSON.parse(event.toString('utf8')) } catch { body = {} }
+    const str = event.toString('utf8').trim()
+    // 空 Buffer = OPTIONS preflight 或无体请求，直接返回 CORS 头
+    if (!str) {
+      return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+    }
+    try { body = JSON.parse(str) } catch { body = {} }
   } else if (typeof event === 'string') {
-    try { body = JSON.parse(event) } catch { body = {} }
+    const str = event.trim()
+    if (!str) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+    try { body = JSON.parse(str) } catch { body = {} }
   } else if (typeof event === 'object' && event !== null) {
-    // 兼容：如果 event 是对象，尝试从 event.body 取
+    method = (event.httpMethod || event.method || 'POST').toUpperCase()
+    if (method === 'OPTIONS') {
+      return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+    }
     const rawBody = event.body || '{}'
     try {
       body = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody
@@ -24,7 +43,7 @@ export const handler = async (event, context) => {
   if (!prompt) {
     return {
       statusCode: 400,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       body: JSON.stringify({ error: '缺少 prompt' })
     }
   }
@@ -32,7 +51,7 @@ export const handler = async (event, context) => {
   if (!apiKey) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       body: JSON.stringify({ error: '未配置 OPENAI_API_KEY 环境变量' })
     }
   }
@@ -40,7 +59,7 @@ export const handler = async (event, context) => {
   if (!baseUrl) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       body: JSON.stringify({ error: '未配置 OPENAI_BASE_URL 环境变量' })
     }
   }
@@ -110,20 +129,20 @@ export const handler = async (event, context) => {
     if (imageUrl) {
       return {
         statusCode: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
         body: JSON.stringify({ url: imageUrl })
       }
     } else {
       return {
         statusCode: response.status || 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
         body: JSON.stringify(data)
       }
     }
   } catch (err) {
     return {
       statusCode: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
       body: JSON.stringify({ error: 'API 请求失败: ' + err.message })
     }
   }
