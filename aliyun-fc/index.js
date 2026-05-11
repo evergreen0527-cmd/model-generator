@@ -1,6 +1,7 @@
-'use strict'
+import https from 'https'
+import { Buffer } from 'buffer'
 
-module.exports.handler = function (req, resp, context) {
+export const handler = function (req, resp, context) {
   const method = (req.method || '').toUpperCase()
   
   if (method === 'OPTIONS') {
@@ -61,7 +62,6 @@ module.exports.handler = function (req, resp, context) {
   }
 
   // 发送 API 请求
-  const https = require('https')
   const url = new URL(baseUrl + '/responses')
   const requestBody = JSON.stringify({
     model,
