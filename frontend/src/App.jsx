@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import './App.css'
 
-// API 地址配置：默认相对路径（Cloudflare Pages Functions）
+// API 地址配置：阿里云 FC 公网地址（v2）
 // 部署到阿里云 FC 后，改为阿里云 FC 的公网 URL
 // 例如：const API_BASE_URL = 'https://xxx.aliyuncs.com'
 const API_BASE_URL = 'https://model-gator-api-gmbhjzhwgo.cn-hangzhou.fcapp.run'
