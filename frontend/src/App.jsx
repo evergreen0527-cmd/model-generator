@@ -2,6 +2,11 @@ import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import './App.css'
 
+// API 地址配置：默认相对路径（Cloudflare Pages Functions）
+// 部署到阿里云 FC 后，改为阿里云 FC 的公网 URL
+// 例如：const API_BASE_URL = 'https://xxx.aliyuncs.com'
+const API_BASE_URL = ''
+
 const DB_NAME = 'model_generator_db'
 const STORE_NAME = 'models'
 const DATA_KEY = 'data'
@@ -406,7 +411,7 @@ function ModelWorkspace({ model, onRefresh }) {
       const compressedScene = await compressImage(sceneBase64, 1024, 1024, 0.8)
 
       // 调用 Pages Functions API 生成图片（传入模特图 + 场景图 + prompt）
-      const response = await axios.post('/api/generate', {
+      const response = await axios.post(`${API_BASE_URL}/api/generate`, {
         prompt: generationPrompt,
         images: [compressedModel, compressedScene]
       }, { timeout: 90000 })
@@ -699,7 +704,7 @@ function ChatPage() {
     setError('')
 
     try {
-      const response = await axios.post('/api/generate', {
+      const response = await axios.post(`${API_BASE_URL}/api/generate`, {
         prompt: inputText || '根据参考图片生成图片',
         images: currentImages.map(img => img.base64)
       }, { timeout: 90000 }) // 90 秒超时
