@@ -41,10 +41,11 @@ export const handler = async (event, context) => {
   const model = process.env.IMAGE_MODEL || 'gpt-image-2'
 
   if (!prompt) {
+    // 空 body 请求（OPTIONS preflight 或错误请求），返回 204 让 CORS preflight 成功
     return {
-      statusCode: 400,
+      statusCode: 204,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
-      body: JSON.stringify({ error: '缺少 prompt' })
+      body: ''
     }
   }
 
