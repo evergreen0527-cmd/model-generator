@@ -203,9 +203,12 @@ body {
 .chat-loading {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
   color: #666;
   font-size: 0.9rem;
+  white-space: nowrap;
+  min-width: 220px;
 }
 
 .chat-error {

@@ -559,9 +559,9 @@ function ModelWorkspace({ model, onRefresh }) {
             disabled={loading || !sceneImage}
           >
             {loading ? (
-              <span>
+              <span style={{display:'inline-flex',alignItems:'center',gap:'6px',whiteSpace:'nowrap'}}>
                 <span className="loading"></span>
-                {genStatus === 'reasoning' ? '🤔 推理中...' : genStatus === 'generating' ? '🎨 生成中...' : genStatus === 'connecting' ? '🔗 连接中...' : '生成中...'}
+                {genStatus === 'reasoning' ? '🤔 推理中' : genStatus === 'generating' ? '🎨 生成中' : genStatus === 'connecting' ? '🔗 连接中' : '生成中'}
                 {genProgress > 0 && ` ${Math.round(genProgress * 100)}%`}
               </span>
             ) : (
@@ -844,9 +844,12 @@ function ChatPage() {
             <div className="chat-avatar">🤖</div>
             <div className="chat-bubble">
               <div className="chat-loading">
-                <span className="loading"></span>
-                {genStatus === 'reasoning' ? ' 🤔 AI 正在推理中...' : genStatus === 'generating' ? ' 🎨 图片生成中...' : genStatus === 'connecting' ? ' 🔗 连接中...' : ' AI 正在生成图片...'}
-                {genProgress > 0 && <div style={{marginTop:'6px',background:'#e5e7eb',borderRadius:'4px',height:'6px',width:'100%'}}><div style={{background:'#3b82f6',borderRadius:'4px',height:'6px',width:`${Math.round(genProgress*100)}%`,transition:'width 0.5s'}}></div></div>}
+                <span style={{display:'inline-flex',alignItems:'center',gap:'8px',whiteSpace:'nowrap'}}>
+                  <span className="loading"></span>
+                  {genStatus === 'reasoning' ? '🤔 AI 正在推理中...' : genStatus === 'generating' ? '🎨 图片生成中...' : genStatus === 'connecting' ? '🔗 连接中...' : 'AI 正在生成图片...'}
+                  {genProgress > 0 && ` ${Math.round(genProgress * 100)}%`}
+                </span>
+                {genProgress > 0 && <div style={{width:'100%',background:'#e5e7eb',borderRadius:'4px',height:'6px'}}><div style={{background:'#3b82f6',borderRadius:'4px',height:'6px',width:`${Math.round(genProgress*100)}%`,transition:'width 0.5s'}}></div></div>}
               </div>
             </div>
           </div>
