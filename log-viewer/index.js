@@ -7,9 +7,42 @@
 
 const http = require('http')
 const https = require('https')
+const fs = require('fs')
+const path = require('path')
 
 const PORT = 3333
 const FC_LOGS_URL = 'https://model-gator-api-gmbhjzhwgo.cn-hangzhou.fcapp.run/logs'
+const LOG_STORE_PATH = path.join(__dirname, 'logs-store.json')
+const MAX_KEEP = 500   // 本地磁盘保留最多 500 条历史
+const MAX_SHOW = 20    // 页面展示最近 20 条
+
+// 启动时从磁盘加载历史
+let LOCAL_LOGS = []
+try {
+  if (fs.existsSync(LOG_STORE_PATH)) {
+    LOCAL_LOGS = JSON.parse(fs.readFileSync(LOG_STORE_PATH, 'utf8')) || []
+    console.log(`  💾 已加载本地历史日志 ${LOCAL_LOGS.length} 条`)
+  }
+} catch (e) { LOCAL_LOGS = [] }
+
+function mergeAndPersist(remoteLogs) {
+  const map = new Map()
+  for (const log of LOCAL_LOGS) {
+    if (log && log.id != null) map.set(log.id, log)
+  }
+  for (const log of (remoteLogs || [])) {
+    if (log && log.id != null) map.set(log.id, log)
+  }
+  LOCAL_LOGS = Array.from(map.values())
+    .sort((a, b) => new Date(b.startTime || 0) - new Date(a.startTime || 0))
+    .slice(0, MAX_KEEP)
+  try {
+    fs.writeFileSync(LOG_STORE_PATH, JSON.stringify(LOCAL_LOGS))
+  } catch (e) {
+    console.error('  ⚠️ 写入本地日志失败:', e.message)
+  }
+  return LOCAL_LOGS
+}
 
 function fetchLogs() {
   return new Promise((resolve) => {
@@ -17,11 +50,15 @@ function fetchLogs() {
       let data = ''
       res.on('data', chunk => { data += chunk })
       res.on('end', () => {
-        try { resolve(JSON.parse(data)) }
-        catch { resolve({ total: 0, logs: [], error: '解析失败: ' + data.substring(0, 200) }) }
+        let remote = { total: 0, logs: [], error: null }
+        try { remote = JSON.parse(data) }
+        catch { remote = { total: 0, logs: [], error: '解析失败: ' + data.substring(0, 200) } }
+        const merged = mergeAndPersist(remote.logs || [])
+        resolve({ total: merged.length, logs: merged.slice(0, MAX_SHOW), error: remote.error || null, remoteCount: (remote.logs || []).length })
       })
     }).on('error', (err) => {
-      resolve({ total: 0, logs: [], error: '请求失败: ' + err.message })
+      // 网络失败时回退到本地历史
+      resolve({ total: LOCAL_LOGS.length, logs: LOCAL_LOGS.slice(0, MAX_SHOW), error: '请求FC失败(展示本地历史): ' + err.message, remoteCount: 0 })
     })
   })
 }
@@ -108,7 +145,8 @@ function renderHTML(result) {
     <div class="meta">
       <span>最后更新: ${now}</span>
       <span class="online">● 在线</span>
-      <span>共 ${total} 条记录（保留最近200条，实例重启后清空）</span>
+      <span>展示最近 ${logs.length} / 共本地 ${total} 条（FC实例重启不影响本地历史）</span>
+      <span>本次拉到 ${result.remoteCount || 0} 条</span>
     </div>
   </div>
   <div class="container">
