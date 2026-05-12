@@ -406,9 +406,9 @@ function ModelWorkspace({ model, onRefresh }) {
       const sceneBase64 = await fileToBase64(sceneImage)
       const generationPrompt = prompt || '将模特放置在提供的场景背景中，保持模特的姿势和外观，自然地融合到新场景中'
 
-      // 压缩图片后传给 API
-      const compressedModel = await compressImage(model.referenceImage, 1024, 1024, 0.8)
-      const compressedScene = await compressImage(sceneBase64, 1024, 1024, 0.8)
+      // 压缩图片后传给 API（限制到 512x512 / 质量 0.5，避免超过 FC 6MB body 限制）
+      const compressedModel = await compressImage(model.referenceImage, 512, 512, 0.5)
+      const compressedScene = await compressImage(sceneBase64, 512, 512, 0.5)
 
       // 调用 Pages Functions API 生成图片（传入模特图 + 场景图 + prompt）
       const response = await axios.post(`${API_BASE_URL}`, {

@@ -20,9 +20,10 @@ export const handler = async (event, context) => {
   let method = 'POST'
   let rawPath = '/'
 
-  // 诊断日志：记录 event 原始类型
+  // 诊断日志：记录 event 原始类型与大小
   const reqId = context?.requestId || ''
-  console.log(JSON.stringify({ event: 'PARSE_START', reqId, eventType: Buffer.isBuffer(event) ? 'Buffer' : typeof event }))
+  const eventSizeBytes = Buffer.isBuffer(event) ? event.length : (typeof event === 'string' ? Buffer.byteLength(event) : -1)
+  console.log(JSON.stringify({ event: 'PARSE_START', reqId, eventType: Buffer.isBuffer(event) ? 'Buffer' : typeof event, eventSizeBytes, eventSizeKB: (eventSizeBytes / 1024).toFixed(1) }))
 
   if (Buffer.isBuffer(event)) {
     const str = event.toString('utf8').trim()
