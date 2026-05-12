@@ -72,17 +72,24 @@ function renderHTML(result) {
   const rows = logs.map(log => {
     const status = log.success
       ? `<span class="badge success">✅ 成功</span>`
-      : `<span class="badge fail">❌ 失败</span>`
+      : `<span class="badge fail">❌ 失败${log.stage === 'early_return' ? ' (早退)' : log.stage === 'fetch_error' ? ' (上游)' : ''}</span>`
     const errorText = log.error ? `<div class="error-text">错误: ${escapeHtml(log.error)}</div>` : ''
     const startLocal = new Date(log.startTime).toLocaleString('zh-CN')
-    const imageTypeText = log.imageType === 'base64' ? '🖼 base64图片' : log.imageType === 'url' ? '🔗 图片URL' : '-'
+    const imageTypeText = log.imageType === 'base64' ? '🖼 base64' : log.imageType === 'url' ? '🔗 URL' : '-'
+    const promptLenBadge = log.promptLen ? `<span class="dim">(${log.promptLen}字符)</span>` : ''
+    const rawBodyKb = log.rawBodyLen ? (log.rawBodyLen / 1024).toFixed(1) + 'KB' : '-'
+    const upMs = log.upstreamMs ? (log.upstreamMs / 1000).toFixed(1) + 's' : '-'
+    const respKb = log.responseSizeKb != null ? (log.responseSizeKb >= 1024 ? (log.responseSizeKb/1024).toFixed(2) + 'MB' : log.responseSizeKb + 'KB') : '-'
 
     return `
     <tr>
       <td class="time">${startLocal}</td>
       <td>${status}${errorText}</td>
       <td class="duration ${log.durationMs > 60000 ? 'slow' : ''}">${log.durationStr}</td>
-      <td class="prompt" title="${escapeHtml(log.prompt)}">${escapeHtml(log.prompt)}</td>
+      <td class="duration">${upMs}</td>
+      <td class="prompt" title="${escapeHtml(log.prompt)}">${escapeHtml(log.prompt)} ${promptLenBadge}</td>
+      <td>${rawBodyKb}</td>
+      <td>${respKb}</td>
       <td>${log.imagesCount > 0 ? `📷 ${log.imagesCount}张` : '-'}</td>
       <td>${imageTypeText}</td>
       <td class="model">${escapeHtml(log.model || '')}</td>
@@ -90,7 +97,7 @@ function renderHTML(result) {
   }).join('')
 
   const emptyRow = logs.length === 0
-    ? `<tr><td colspan="7" class="empty">${error ? '⚠️ ' + escapeHtml(error) : '暂无调用记录（FC函数实例重启后日志会清空）'}</td></tr>`
+    ? `<tr><td colspan="10" class="empty">${error ? '⚠️ ' + escapeHtml(error) : '暂无调用记录'}</td></tr>`
     : ''
 
   return `<!DOCTYPE html>
@@ -127,6 +134,7 @@ function renderHTML(result) {
     td.duration.slow { color: #fb923c; }
     td.prompt { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; }
     td.model { color: #94a3b8; font-size: 12px; }
+    .dim { color: #64748b; font-size: 11px; margin-left: 4px; }
     .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
     .badge.success { background: #14532d; color: #86efac; }
     .badge.fail { background: #450a0a; color: #fca5a5; }
@@ -161,8 +169,11 @@ function renderHTML(result) {
           <tr>
             <th>调用时间</th>
             <th>结果</th>
-            <th>耗时</th>
+            <th>总耗时</th>
+            <th>上游耗时</th>
             <th>Prompt</th>
+            <th>请求大小</th>
+            <th>响应大小</th>
             <th>图片数</th>
             <th>返回类型</th>
             <th>模型</th>
