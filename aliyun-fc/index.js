@@ -40,12 +40,24 @@ export const handler = async (event, context) => {
         console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'options_preflight' }))
         return { statusCode: 204, headers: CORS_HEADERS, body: '' }
       }
+      // 诊断：记录 parsed.body 的原始值
+      console.log(JSON.stringify({
+        event: 'RAW_BODY_DEBUG', reqId,
+        isBase64Encoded: parsed.isBase64Encoded,
+        bodyType: typeof parsed.body,
+        bodyIsNull: parsed.body === null,
+        bodyPreview: String(parsed.body ?? '').substring(0, 200)
+      }))
       let rawBody = parsed.body || ''
       if (parsed.isBase64Encoded && rawBody) {
         rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
       }
-      try { body = JSON.parse(rawBody) } catch { body = {} }
+      try { body = JSON.parse(rawBody) } catch (e) {
+        console.log(JSON.stringify({ event: 'BODY_PARSE_FAIL', reqId, error: e.message, rawBody: String(rawBody).substring(0, 200) }))
+        body = {}
+      }
     } else {
+      console.log(JSON.stringify({ event: 'NO_BODY_FIELD', reqId, parsedKeys: Object.keys(parsed) }))
       body = parsed
     }
   } else if (typeof event === 'string') {
