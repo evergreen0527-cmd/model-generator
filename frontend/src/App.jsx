@@ -6,6 +6,35 @@ import './App.css'
 // 部署到阿里云 FC 后，改为阿里云 FC 的公网 URL
 // 例如：const API_BASE_URL = 'https://xxx.aliyuncs.com'
 const API_BASE_URL = 'https://model-gator-api-gmbhjzhwgo.cn-hangzhou.fcapp.run/'
+const STATUS_URL = API_BASE_URL.replace(/\/$/, '') + '/status'
+
+// 异步轮询生图任务
+async function pollForImage(prompt, onProgress) {
+  const { data } = await axios.post(`${API_BASE_URL}`, { prompt }, { timeout: 15000 })
+  const taskId = data.taskId
+  if (!taskId) throw new Error(data.error || '未返回 taskId')
+
+  return new Promise((resolve, reject) => {
+    let stopped = false
+    const interval = setInterval(async () => {
+      if (stopped) return
+      try {
+        const { data: st } = await axios.get(`${STATUS_URL}?id=${taskId}`, { timeout: 10000 })
+        if (onProgress) onProgress(st)
+        if (st.status === 'done' && st.url) {
+          stopped = true; clearInterval(interval); resolve(st.url)
+        }
+        if (st.status === 'error') {
+          stopped = true; clearInterval(interval); reject(new Error(st.error || '生成失败'))
+        }
+      } catch (e) {
+        // 轮询网络失败不放弃，继续
+      }
+    }, 2000) // 每 2 秒查一次
+    // 10 分钟总超时
+    setTimeout(() => { if (!stopped) { stopped = true; clearInterval(interval); reject(new Error('生成超时(已等待10分钟)')) } }, 600000)
+  })
+}
 
 const DB_NAME = 'model_generator_db'
 const STORE_NAME = 'models'
@@ -380,6 +409,8 @@ function ModelWorkspace({ model, onRefresh }) {
   const [prompt, setPrompt] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [genStatus, setGenStatus] = useState('')
+  const [genProgress, setGenProgress] = useState(0)
   const [lightboxImage, setLightboxImage] = useState(null)
   const [showHistory, setShowHistory] = useState(false)
 
@@ -392,7 +423,6 @@ function ModelWorkspace({ model, onRefresh }) {
     // 清空 input value，确保下次选同一个文件也能触发 onChange
     e.target.value = ''
   }
-
   const handleGenerate = async () => {
     if (!sceneImage) {
       setError('请上传场景参考图片')
@@ -407,11 +437,10 @@ function ModelWorkspace({ model, onRefresh }) {
       const generationPrompt = prompt || '将人物放置在提供的场景背景中，保持人物的姿势和外观，自然地融合到新场景中'
 
       // 注意：47claude 不支持多模态图片输入，只传 prompt
-      const response = await axios.post(`${API_BASE_URL}`, {
-        prompt: generationPrompt
-      }, { timeout: 570000 })
-
-      const generatedUrl = response.data.url
+      const generatedUrl = await pollForImage(generationPrompt, (st) => {
+        setGenStatus(st.status)
+        setGenProgress(st.progress || 0)
+      })
 
       // 更新 IndexedDB
       const data = await loadData()
@@ -440,6 +469,8 @@ function ModelWorkspace({ model, onRefresh }) {
       setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg))
     } finally {
       setLoading(false)
+      setGenStatus('')
+      setGenProgress(0)
     }
   }
 
@@ -529,7 +560,9 @@ function ModelWorkspace({ model, onRefresh }) {
           >
             {loading ? (
               <span>
-                <span className="loading"></span> 生成中...
+                <span className="loading"></span>
+                {genStatus === 'reasoning' ? '🤔 推理中...' : genStatus === 'generating' ? '🎨 生成中...' : genStatus === 'connecting' ? '🔗 连接中...' : '生成中...'}
+                {genProgress > 0 && ` ${Math.round(genProgress * 100)}%`}
               </span>
             ) : (
               '✨ 生成图片'
@@ -651,6 +684,8 @@ function ChatPage() {
   const [uploadedImages, setUploadedImages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [genStatus, setGenStatus] = useState('')
+  const [genProgress, setGenProgress] = useState(0)
   const [lightboxImage, setLightboxImage] = useState(null)
   const messagesEndRef = useRef(null)
 
@@ -700,16 +735,16 @@ function ChatPage() {
     setError('')
 
     try {
-      const response = await axios.post(`${API_BASE_URL}`, {
-        prompt: inputText || '根据参考图片生成图片',
-        images: currentImages.map(img => img.base64)
-      }, { timeout: 570000 }) // 570 秒超时（阿里云 FC 600 秒限制）
+      const generatedUrl = await pollForImage(
+        inputText || '根据参考图片生成图片',
+        (st) => { setGenStatus(st.status); setGenProgress(st.progress || 0) }
+      )
 
       const assistantMsg = {
         id: uuid(),
         role: 'assistant',
         content: '图片已生成',
-        images: [response.data.url],
+        images: [generatedUrl],
         createdAt: new Date().toISOString()
       }
 
@@ -727,6 +762,8 @@ function ChatPage() {
       setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg))
     } finally {
       setLoading(false)
+      setGenStatus('')
+      setGenProgress(0)
     }
   }
 
@@ -807,7 +844,9 @@ function ChatPage() {
             <div className="chat-avatar">🤖</div>
             <div className="chat-bubble">
               <div className="chat-loading">
-                <span className="loading"></span> AI 正在生成图片...
+                <span className="loading"></span>
+                {genStatus === 'reasoning' ? ' 🤔 AI 正在推理中...' : genStatus === 'generating' ? ' 🎨 图片生成中...' : genStatus === 'connecting' ? ' 🔗 连接中...' : ' AI 正在生成图片...'}
+                {genProgress > 0 && <div style={{marginTop:'6px',background:'#e5e7eb',borderRadius:'4px',height:'6px',width:'100%'}}><div style={{background:'#3b82f6',borderRadius:'4px',height:'6px',width:`${Math.round(genProgress*100)}%`,transition:'width 0.5s'}}></div></div>}
               </div>
             </div>
           </div>
