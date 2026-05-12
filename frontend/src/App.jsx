@@ -432,11 +432,12 @@ function ModelWorkspace({ model, onRefresh }) {
       setPrompt('')
       await onRefresh()
     } catch (err) {
-      let errMsg = err.response?.data?.error || err.message || '生成失败'
+      const errObj = err.response?.data?.error
+      let errMsg = (errObj && typeof errObj === 'object' ? (errObj.message || JSON.stringify(errObj)) : errObj) || err.message || '生成失败'
       if (err.code === 'ECONNABORTED' || err.message?.includes('524') || err.message?.includes('timeout') || err.message?.includes('Network Error')) {
         errMsg = '生成超时（模型响应较慢），请重试或稍后再次尝试'
       }
-      setError(errMsg)
+      setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg))
     } finally {
       setLoading(false)
     }
@@ -716,13 +717,14 @@ function ChatPage() {
       setMessages(finalMessages)
       await saveChatData(finalMessages)
     } catch (err) {
-      let errMsg = err.response?.data?.error || err.message || '生成失败'
+      const errObj = err.response?.data?.error
+      let errMsg = (errObj && typeof errObj === 'object' ? (errObj.message || JSON.stringify(errObj)) : errObj) || err.message || '生成失败'
       if (err.code === 'ECONNABORTED' || err.message?.includes('524') || err.message?.includes('timeout') || err.message?.includes('Network Error')) {
         errMsg = '生成超时（模型响应较慢），请重试或稍后再次尝试'
       } else if (err.response?.data?.detail) {
         errMsg = `${errMsg}（${JSON.stringify(err.response.data.detail).substring(0, 200)}）`
       }
-      setError(errMsg)
+      setError(typeof errMsg === 'string' ? errMsg : JSON.stringify(errMsg))
     } finally {
       setLoading(false)
     }

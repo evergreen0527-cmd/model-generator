@@ -143,7 +143,7 @@ export const handler = async (event, context) => {
   let imageUrl = null
 
   try {
-    const response = await fetch(baseUrl + '/chat/completions', {
+    const response = await fetch(baseUrl + '/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -151,7 +151,10 @@ export const handler = async (event, context) => {
       },
       body: JSON.stringify({
         model,
-        messages: [{ role: 'user', content: prompt }]
+        input: prompt,
+        store: false,
+        reasoning: { effort: 'low' },
+        tools: [{ type: 'image_generation' }]
       })
     })
 
