@@ -143,7 +143,7 @@ export const handler = async (event, context) => {
   let imageUrl = null
 
   try {
-    const response = await fetch(baseUrl + '/responses', {
+    const response = await fetch(baseUrl + '/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -151,9 +151,7 @@ export const handler = async (event, context) => {
       },
       body: JSON.stringify({
         model,
-        input: prompt,
-        store: false,
-        tools: [{ type: 'image_generation' }]
+        messages: [{ role: 'user', content: prompt }]
       })
     })
 
@@ -162,8 +160,38 @@ export const handler = async (event, context) => {
     const duration = callEndTime - callStartTime
 
     // ========== 解析图片 ==========
+    // 优先解析 chat/completions 响应：choices[0].message.content 中的图片
     let textContent = ''
-    const output = Array.isArray(data.output) ? data.output : []
+    if (Array.isArray(data.choices) && data.choices.length > 0) {
+      const msg = data.choices[0].message || {}
+      if (typeof msg.content === 'string') {
+        textContent = msg.content
+      } else if (Array.isArray(msg.content)) {
+        for (const c of msg.content) {
+          if (!c) continue
+          if ((c.type === 'image_url' || c.type === 'output_image') && c.image_url) {
+            imageUrl = typeof c.image_url === 'string' ? c.image_url : c.image_url.url
+            if (imageUrl) break
+          }
+          if (typeof c.text === 'string') textContent += c.text + '\n'
+        }
+      }
+      // 部分网关会把图放在 message.images 里
+      if (!imageUrl && Array.isArray(msg.images) && msg.images.length > 0) {
+        const img0 = msg.images[0]
+        imageUrl = typeof img0 === 'string' ? img0 : (img0.url || img0.image_url || null)
+      }
+    }
+
+    // 兜底：images/generations 风格
+    if (!imageUrl && Array.isArray(data.data) && data.data.length > 0) {
+      const first = data.data[0]
+      if (first.url) imageUrl = first.url
+      else if (first.b64_json) imageUrl = 'data:image/png;base64,' + first.b64_json
+    }
+
+    // 兜底：Responses API 风格
+    const output = !imageUrl && Array.isArray(data.output) ? data.output : []
 
     for (const item of output) {
       if (!item || typeof item !== 'object') continue

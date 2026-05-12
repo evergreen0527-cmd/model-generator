@@ -171,7 +171,7 @@ function App() {
 
   const handleDeleteModel = async (modelId, e) => {
     e.stopPropagation()
-    if (!confirm('确定删除该模特及其所有生成历史吗？')) return
+    if (!confirm('确定删除该人物及其所有生成历史吗？')) return
     const current = await loadData()
     const data = current.filter(m => m.id !== modelId)
     await saveData(data)
@@ -182,8 +182,8 @@ function App() {
   return (
     <div className="container">
       <header className="header">
-        <h1>🎨 模特图生成器</h1>
-        <p>基于 AI 的模特图片生成平台</p>
+        <h1>🎨 图片生成</h1>
+        <p>图片生成平台</p>
       </header>
 
       <nav className="tab-nav">
@@ -191,7 +191,7 @@ function App() {
           className={`tab-btn ${activeTab === 'models' ? 'active' : ''}`}
           onClick={() => setActiveTab('models')}
         >
-          👤 模特管理
+          👤 人物管理
         </button>
         <button
           className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
@@ -204,7 +204,7 @@ function App() {
       {activeTab === 'models' ? (
         <div className="main-content">
           <aside className="sidebar">
-            <h2>我的模特</h2>
+            <h2>人物列表</h2>
             <div className="model-list">
               {models.map(model => (
                 <div
@@ -239,7 +239,7 @@ function App() {
               className="create-model-btn"
               onClick={() => setShowCreateModal(true)}
             >
-              + 创建新模特
+              + 创建新人物
             </button>
           </aside>
 
@@ -248,8 +248,8 @@ function App() {
               <ModelWorkspace model={selectedModel} onRefresh={refreshModels} />
             ) : (
               <div className="empty-state">
-                <h2>欢迎使用模特图生成器</h2>
-                <p>请先创建或选择一个模特开始使用</p>
+                <h2>欢迎使用图片生成</h2>
+                <p>请先创建或选择一个人物开始使用</p>
               </div>
             )}
           </main>
@@ -291,7 +291,7 @@ function CreateModelModal({ onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!name || !image) {
-      setError('请填写模特名称并上传参考图片')
+      setError('请填写人物名称并上传参考图片')
       return
     }
 
@@ -321,21 +321,21 @@ function CreateModelModal({ onClose, onSuccess }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <h3>创建新模特</h3>
+        <h3>创建新人物</h3>
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label>模特名称</label>
+            <label>人物名称</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="请输入模特名称"
+              placeholder="请输入人物名称"
               required
             />
           </div>
 
           <div className="form-group">
-            <label>模特参考图片</label>
+            <label>参考图片</label>
             <div className="upload-area" style={{ cursor: 'pointer' }}>
               <input
                 type="file"
@@ -351,7 +351,7 @@ function CreateModelModal({ onClose, onSuccess }) {
                 ) : (
                   <div className="upload-label">
                     <div className="upload-icon">📷</div>
-                    <div>点击上传模特参考图片</div>
+                    <div>点击上传参考图片</div>
                   </div>
                 )}
               </label>
@@ -404,7 +404,7 @@ function ModelWorkspace({ model, onRefresh }) {
 
     try {
       const sceneBase64 = await fileToBase64(sceneImage)
-      const generationPrompt = prompt || '将模特放置在提供的场景背景中，保持模特的姿势和外观，自然地融合到新场景中'
+      const generationPrompt = prompt || '将人物放置在提供的场景背景中，保持人物的姿势和外观，自然地融合到新场景中'
 
       // 注意：47claude 不支持多模态图片输入，只传 prompt
       const response = await axios.post(`${API_BASE_URL}`, {
@@ -531,7 +531,7 @@ function ModelWorkspace({ model, onRefresh }) {
                 <span className="loading"></span> 生成中...
               </span>
             ) : (
-              '✨ 生成模特图'
+              '✨ 生成图片'
             )}
           </button>
 
@@ -539,11 +539,11 @@ function ModelWorkspace({ model, onRefresh }) {
         </div>
 
         <div>
-          <h3 style={{ marginBottom: '15px', color: '#333' }}>模特参考图</h3>
+          <h3 style={{ marginBottom: '15px', color: '#333' }}>人物参考图</h3>
           <div className="upload-area has-image">
             <img
               src={model.referenceImage}
-              alt="模特参考"
+              alt="人物参考"
             />
           </div>
         </div>
