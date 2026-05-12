@@ -34,6 +34,9 @@ export const handler = async (event, context) => {
     let parsed = {}
     try { parsed = JSON.parse(str) } catch { parsed = {} }
 
+    // 诊断：打印完整 event 原始内容（前 800 字符）
+    console.log(JSON.stringify({ event: 'RAW_EVENT_DUMP', reqId, dump: str.substring(0, 800) }))
+
     rawPath = parsed.rawPath || '/'
     if ('body' in parsed) {
       method = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
