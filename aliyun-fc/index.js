@@ -1,3 +1,12 @@
+// 全局日志存储（同一实例生命周期内有效，最多保留 200 条）
+const CALL_LOGS = []
+const MAX_LOGS = 200
+
+function addLog(entry) {
+  CALL_LOGS.unshift(entry)
+  if (CALL_LOGS.length > MAX_LOGS) CALL_LOGS.pop()
+}
+
 export const handler = async (event, context) => {
   const CORS_HEADERS = {
     'Access-Control-Allow-Origin': '*',
@@ -7,9 +16,9 @@ export const handler = async (event, context) => {
   }
 
   // ========== 解析 event ==========
-  // 阿里云 FC HTTP 触发器：event 是 Buffer，内容是 HTTP 请求体
   let body = {}
   let method = 'POST'
+  let rawPath = '/'
 
   if (Buffer.isBuffer(event)) {
     const str = event.toString('utf8').trim()
@@ -19,21 +28,18 @@ export const handler = async (event, context) => {
     let parsed = {}
     try { parsed = JSON.parse(str) } catch { parsed = {} }
 
-    // 阿里云 FC HTTP 触发器事件对象：{version, rawPath, headers, body, isBase64Encoded, ...}
-    // 请求体在 parsed.body 字段里，不是直接是请求体
+    rawPath = parsed.rawPath || '/'
     if ('body' in parsed) {
-      const httpMethod = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
-      if (httpMethod === 'OPTIONS') {
+      method = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
+      if (method === 'OPTIONS') {
         return { statusCode: 204, headers: CORS_HEADERS, body: '' }
       }
       let rawBody = parsed.body || ''
-      // 如果 body 是 base64 编码的，需要先解码
       if (parsed.isBase64Encoded && rawBody) {
         rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
       }
       try { body = JSON.parse(rawBody) } catch { body = {} }
     } else {
-      // 兼容：如果没有 body 字段，直接当请求体使用
       body = parsed
     }
   } else if (typeof event === 'string') {
@@ -41,6 +47,7 @@ export const handler = async (event, context) => {
     if (!str) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     let parsed = {}
     try { parsed = JSON.parse(str) } catch { parsed = {} }
+    rawPath = parsed.rawPath || '/'
     if ('body' in parsed) {
       let rawBody = parsed.body || ''
       if (parsed.isBase64Encoded && rawBody) rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
@@ -49,6 +56,7 @@ export const handler = async (event, context) => {
       body = parsed
     }
   } else if (typeof event === 'object' && event !== null) {
+    rawPath = event.rawPath || '/'
     method = (event.httpMethod || event.method || 'POST').toUpperCase()
     if (method === 'OPTIONS') {
       return { statusCode: 204, headers: CORS_HEADERS, body: '' }
@@ -58,6 +66,15 @@ export const handler = async (event, context) => {
     try {
       body = typeof rawBody === 'string' ? JSON.parse(rawBody) : rawBody
     } catch { body = {} }
+  }
+
+  // ========== /logs 路由：查看调用日志 ==========
+  if (rawPath === '/logs') {
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
+      body: JSON.stringify({ total: CALL_LOGS.length, logs: CALL_LOGS }, null, 2)
+    }
   }
 
   const prompt = body.prompt || ''
@@ -91,7 +108,25 @@ export const handler = async (event, context) => {
     }
   }
 
-  // ========== 调用 47claude API ==========
+  // ========== 调用 47claude API（含日志记录）==========
+  const callStartTime = new Date()
+  const promptSummary = prompt.length > 100 ? prompt.substring(0, 100) + '...' : prompt
+  const imagesCount = Array.isArray(body.images) ? body.images.length : 0
+
+  console.log(JSON.stringify({
+    event: 'API_CALL_START',
+    requestId: context?.requestId || '',
+    time: callStartTime.toISOString(),
+    prompt: promptSummary,
+    imagesCount,
+    model,
+    baseUrl
+  }))
+
+  let callSuccess = false
+  let callError = null
+  let imageUrl = null
+
   try {
     const response = await fetch(baseUrl + '/responses', {
       method: 'POST',
@@ -109,9 +144,10 @@ export const handler = async (event, context) => {
     })
 
     const data = await response.json()
+    const callEndTime = new Date()
+    const duration = callEndTime - callStartTime
 
     // ========== 解析图片 ==========
-    let imageUrl = null
     let textContent = ''
     const output = Array.isArray(data.output) ? data.output : []
 
@@ -153,6 +189,33 @@ export const handler = async (event, context) => {
       }
     }
 
+    callSuccess = !!imageUrl
+
+    const logEntry = {
+      id: callStartTime.getTime(),
+      requestId: context?.requestId || '',
+      startTime: callStartTime.toISOString(),
+      endTime: callEndTime.toISOString(),
+      durationMs: duration,
+      durationStr: duration >= 60000
+        ? `${Math.floor(duration / 60000)}分${Math.floor((duration % 60000) / 1000)}秒`
+        : `${(duration / 1000).toFixed(1)}秒`,
+      prompt: promptSummary,
+      imagesCount,
+      model,
+      success: callSuccess,
+      error: null,
+      httpStatus: response.status,
+      imageType: imageUrl ? (imageUrl.startsWith('data:') ? 'base64' : 'url') : null
+    }
+
+    addLog(logEntry)
+
+    console.log(JSON.stringify({
+      event: 'API_CALL_END',
+      ...logEntry
+    }))
+
     if (imageUrl) {
       return {
         statusCode: 200,
@@ -167,6 +230,35 @@ export const handler = async (event, context) => {
       }
     }
   } catch (err) {
+    const callEndTime = new Date()
+    const duration = callEndTime - callStartTime
+    callError = err.message
+
+    const logEntry = {
+      id: callStartTime.getTime(),
+      requestId: context?.requestId || '',
+      startTime: callStartTime.toISOString(),
+      endTime: callEndTime.toISOString(),
+      durationMs: duration,
+      durationStr: duration >= 60000
+        ? `${Math.floor(duration / 60000)}分${Math.floor((duration % 60000) / 1000)}秒`
+        : `${(duration / 1000).toFixed(1)}秒`,
+      prompt: promptSummary,
+      imagesCount,
+      model,
+      success: false,
+      error: err.message,
+      httpStatus: null,
+      imageType: null
+    }
+
+    addLog(logEntry)
+
+    console.log(JSON.stringify({
+      event: 'API_CALL_ERROR',
+      ...logEntry
+    }))
+
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
