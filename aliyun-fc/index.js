@@ -20,9 +20,14 @@ export const handler = async (event, context) => {
   let method = 'POST'
   let rawPath = '/'
 
+  // 诊断日志：记录 event 原始类型
+  const reqId = context?.requestId || ''
+  console.log(JSON.stringify({ event: 'PARSE_START', reqId, eventType: Buffer.isBuffer(event) ? 'Buffer' : typeof event }))
+
   if (Buffer.isBuffer(event)) {
     const str = event.toString('utf8').trim()
     if (!str) {
+      console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'empty_buffer' }))
       return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     }
     let parsed = {}
@@ -32,6 +37,7 @@ export const handler = async (event, context) => {
     if ('body' in parsed) {
       method = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
       if (method === 'OPTIONS') {
+        console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'options_preflight' }))
         return { statusCode: 204, headers: CORS_HEADERS, body: '' }
       }
       let rawBody = parsed.body || ''
@@ -44,7 +50,10 @@ export const handler = async (event, context) => {
     }
   } else if (typeof event === 'string') {
     const str = event.trim()
-    if (!str) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+    if (!str) {
+      console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'empty_string' }))
+      return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+    }
     let parsed = {}
     try { parsed = JSON.parse(str) } catch { parsed = {} }
     rawPath = parsed.rawPath || '/'
@@ -59,6 +68,7 @@ export const handler = async (event, context) => {
     rawPath = event.rawPath || '/'
     method = (event.httpMethod || event.method || 'POST').toUpperCase()
     if (method === 'OPTIONS') {
+      console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'options_preflight_obj' }))
       return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     }
     let rawBody = event.body || '{}'
@@ -79,12 +89,22 @@ export const handler = async (event, context) => {
 
   const prompt = body.prompt || ''
 
+  // 诊断日志：记录解析后的关键字段
+  console.log(JSON.stringify({
+    event: 'PARSE_DONE', reqId,
+    method, rawPath,
+    hasPrompt: !!prompt,
+    promptPreview: prompt ? prompt.substring(0, 50) : '',
+    bodyKeys: Object.keys(body)
+  }))
+
   // 读取环境变量
   const apiKey = process.env.OPENAI_API_KEY || ''
-  const baseUrl = (process.env.OPENAI_BASE_URL || '').replace(/\/$/, '')
+  const baseUrl = (process.env.OPENAI_BASE_URL || '').replace(/\/$/,  '')
   const model = process.env.IMAGE_MODEL || 'gpt-image-2'
 
   if (!prompt) {
+    console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'no_prompt', bodyKeys: Object.keys(body) }))
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
@@ -93,6 +113,7 @@ export const handler = async (event, context) => {
   }
 
   if (!apiKey) {
+    console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'no_api_key' }))
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
