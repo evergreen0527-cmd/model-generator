@@ -152,7 +152,6 @@ export const handler = async (event, context) => {
       body: JSON.stringify({
         model,
         input: prompt,
-        reasoning: { effort: 'high' },
         store: false,
         tools: [{ type: 'image_generation' }]
       })
