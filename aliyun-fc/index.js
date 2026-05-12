@@ -22,57 +22,46 @@ export const handler = async (event, context) => {
 
   // 诊断日志：记录 event 原始类型与大小
   const reqId = context?.requestId || ''
-  const eventSizeBytes = Buffer.isBuffer(event) ? event.length : (typeof event === 'string' ? Buffer.byteLength(event) : -1)
-  console.log(JSON.stringify({ event: 'PARSE_START', reqId, eventType: Buffer.isBuffer(event) ? 'Buffer' : typeof event, eventSizeBytes, eventSizeKB: (eventSizeBytes / 1024).toFixed(1) }))
 
   if (Buffer.isBuffer(event)) {
     const str = event.toString('utf8').trim()
     if (!str) {
-      console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'empty_buffer' }))
       return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     }
     let parsed = {}
     try { parsed = JSON.parse(str) } catch { parsed = {} }
 
-    // 诊断：打印完整 event 原始内容（前 800 字符）
-    console.log(JSON.stringify({ event: 'RAW_EVENT_DUMP', reqId, dump: str.substring(0, 800) }))
-
     rawPath = parsed.rawPath || '/'
+    const reqHeaders = parsed.headers || {}
+    method = (parsed.httpMethod || parsed.method || parsed.requestMethod || 'POST').toUpperCase()
+
+    // 增强 OPTIONS 检测：同时检查 httpMethod 和 CORS preflight 头
+    const isOptions = method === 'OPTIONS' ||
+      !!(reqHeaders['access-control-request-method'] || reqHeaders['Access-Control-Request-Method'])
+    if (isOptions) {
+      return { statusCode: 204, headers: CORS_HEADERS, body: '' }
+    }
+
     if ('body' in parsed) {
-      method = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
-      if (method === 'OPTIONS') {
-        console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'options_preflight' }))
-        return { statusCode: 204, headers: CORS_HEADERS, body: '' }
-      }
-      // 诊断：记录 parsed.body 的原始值
-      console.log(JSON.stringify({
-        event: 'RAW_BODY_DEBUG', reqId,
-        isBase64Encoded: parsed.isBase64Encoded,
-        bodyType: typeof parsed.body,
-        bodyIsNull: parsed.body === null,
-        bodyPreview: String(parsed.body ?? '').substring(0, 200)
-      }))
       let rawBody = parsed.body || ''
       if (parsed.isBase64Encoded && rawBody) {
         rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
       }
-      try { body = JSON.parse(rawBody) } catch (e) {
-        console.log(JSON.stringify({ event: 'BODY_PARSE_FAIL', reqId, error: e.message, rawBody: String(rawBody).substring(0, 200) }))
-        body = {}
-      }
+      try { body = JSON.parse(rawBody) } catch { body = {} }
     } else {
-      console.log(JSON.stringify({ event: 'NO_BODY_FIELD', reqId, parsedKeys: Object.keys(parsed) }))
       body = parsed
     }
   } else if (typeof event === 'string') {
     const str = event.trim()
-    if (!str) {
-      console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'empty_string' }))
-      return { statusCode: 204, headers: CORS_HEADERS, body: '' }
-    }
+    if (!str) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     let parsed = {}
     try { parsed = JSON.parse(str) } catch { parsed = {} }
     rawPath = parsed.rawPath || '/'
+    const reqHeaders = parsed.headers || {}
+    method = (parsed.httpMethod || parsed.method || 'POST').toUpperCase()
+    const isOptions = method === 'OPTIONS' ||
+      !!(reqHeaders['access-control-request-method'] || reqHeaders['Access-Control-Request-Method'])
+    if (isOptions) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     if ('body' in parsed) {
       let rawBody = parsed.body || ''
       if (parsed.isBase64Encoded && rawBody) rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
@@ -82,11 +71,11 @@ export const handler = async (event, context) => {
     }
   } else if (typeof event === 'object' && event !== null) {
     rawPath = event.rawPath || '/'
+    const reqHeaders = event.headers || {}
     method = (event.httpMethod || event.method || 'POST').toUpperCase()
-    if (method === 'OPTIONS') {
-      console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'options_preflight_obj' }))
-      return { statusCode: 204, headers: CORS_HEADERS, body: '' }
-    }
+    const isOptions = method === 'OPTIONS' ||
+      !!(reqHeaders['access-control-request-method'] || reqHeaders['Access-Control-Request-Method'])
+    if (isOptions) return { statusCode: 204, headers: CORS_HEADERS, body: '' }
     let rawBody = event.body || '{}'
     if (event.isBase64Encoded && rawBody) rawBody = Buffer.from(rawBody, 'base64').toString('utf8')
     try {
@@ -105,22 +94,12 @@ export const handler = async (event, context) => {
 
   const prompt = body.prompt || ''
 
-  // 诊断日志：记录解析后的关键字段
-  console.log(JSON.stringify({
-    event: 'PARSE_DONE', reqId,
-    method, rawPath,
-    hasPrompt: !!prompt,
-    promptPreview: prompt ? prompt.substring(0, 50) : '',
-    bodyKeys: Object.keys(body)
-  }))
-
   // 读取环境变量
   const apiKey = process.env.OPENAI_API_KEY || ''
-  const baseUrl = (process.env.OPENAI_BASE_URL || '').replace(/\/$/,  '')
+  const baseUrl = (process.env.OPENAI_BASE_URL || '').replace(/\/$/, '')
   const model = process.env.IMAGE_MODEL || 'gpt-image-2'
 
   if (!prompt) {
-    console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'no_prompt', bodyKeys: Object.keys(body) }))
     return {
       statusCode: 400,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
@@ -129,7 +108,6 @@ export const handler = async (event, context) => {
   }
 
   if (!apiKey) {
-    console.log(JSON.stringify({ event: 'EARLY_RETURN', reqId, reason: 'no_api_key' }))
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json', ...CORS_HEADERS },
