@@ -182,30 +182,65 @@ export const handler = async (event, context) => {
   let callSuccess = false
   let callError = null
   let imageUrl = null
-  let upstreamMs = 0       // fetch 47claude 纯耗时
+  let upstreamMs = 0       // fetch 47claude 纯耗时（最后一次尝试）
   let parseMs = 0          // 解析响应耗时
   let upstreamStatus = null
+  let attempts = 0         // 尝试次数（1..MAX_ATTEMPTS）
+  const MAX_ATTEMPTS = 3   // 最多尝试 3 次（首次 + 2 次重试）
+  const FETCH_TIMEOUT_MS = 150000  // 单次 fetch 最长等待 150 秒（超过即主动 abort，避免上游挖坦里）
+  const RETRIABLE_STATUSES = [408, 429, 502, 503, 504, 524]
+  const retryHistory = []  // 记录每次尝试的结果摘要
 
   try {
-    const fetchStart = Date.now()
-    const response = await fetch(baseUrl + '/responses', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + apiKey
-      },
-      body: JSON.stringify({
-        model,
-        input: prompt,
-        store: false,
-        reasoning: { effort: 'low' },
-        tools: [{ type: 'image_generation' }]
-      })
-    })
+    let response = null
+    let data = null
+    let fetchStart = Date.now()
 
-    const data = await response.json()
-    upstreamMs = Date.now() - fetchStart
-    upstreamStatus = response.status
+    for (attempts = 1; attempts <= MAX_ATTEMPTS; attempts++) {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      fetchStart = Date.now()
+      try {
+        response = await fetch(baseUrl + '/responses', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + apiKey
+          },
+          body: JSON.stringify({
+            model,
+            input: prompt,
+            store: false,
+            reasoning: { effort: 'low' },
+            tools: [{ type: 'image_generation' }]
+          }),
+          signal: controller.signal
+        })
+        clearTimeout(timer)
+        data = await response.json()
+        upstreamMs = Date.now() - fetchStart
+        upstreamStatus = response.status
+        retryHistory.push({ attempt: attempts, status: response.status, ms: upstreamMs })
+
+        const isRetriable = RETRIABLE_STATUSES.includes(response.status)
+        if (isRetriable && attempts < MAX_ATTEMPTS) {
+          console.log(JSON.stringify({ event: 'RETRY_HTTP', attempt: attempts, status: response.status, ms: upstreamMs }))
+          continue
+        }
+        break
+      } catch (err) {
+        clearTimeout(timer)
+        upstreamMs = Date.now() - fetchStart
+        const msg = err.message || ''
+        const isAbort = err.name === 'AbortError' || msg.includes('aborted')
+        const isTransient = isAbort || /terminated|fetch failed|ECONN|ENOTFOUND|network|socket hang up|timeout/i.test(msg)
+        retryHistory.push({ attempt: attempts, error: msg, ms: upstreamMs, retriable: isTransient })
+        console.log(JSON.stringify({ event: 'RETRY_ERR', attempt: attempts, error: msg, ms: upstreamMs, retriable: isTransient }))
+        if (isTransient && attempts < MAX_ATTEMPTS) continue
+        throw err
+      }
+    }
+
     const callEndTime = new Date()
     const duration = callEndTime - callStartTime
     const parseStart = Date.now()
@@ -304,12 +339,14 @@ export const handler = async (event, context) => {
       imagesCount,
       model,
       success: callSuccess,
-      error: null,
+      error: callSuccess ? null : ('HTTP ' + response.status + (retryHistory.length > 1 ? ' (重试' + (attempts - 1) + '次后仍失败)' : '')),
       httpStatus: response.status,
       imageType: imageUrl ? (imageUrl.startsWith('data:') ? 'base64' : 'url') : null,
       upstreamMs,
       parseMs,
       responseSizeKb,
+      attempts,
+      retryHistory,
       stage: 'completed'
     }
 
@@ -353,12 +390,14 @@ export const handler = async (event, context) => {
       imagesCount,
       model,
       success: false,
-      error: err.message,
+      error: err.message + (retryHistory.length > 1 ? ' (重试' + (attempts - 1) + '次后仍失败)' : ''),
       httpStatus: null,
       imageType: null,
       upstreamMs,
       parseMs,
       responseSizeKb: 0,
+      attempts,
+      retryHistory,
       stage: 'fetch_error'
     }
 

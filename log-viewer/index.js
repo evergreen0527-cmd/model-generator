@@ -80,12 +80,13 @@ function renderHTML(result) {
     const rawBodyKb = log.rawBodyLen ? (log.rawBodyLen / 1024).toFixed(1) + 'KB' : '-'
     const upMs = log.upstreamMs ? (log.upstreamMs / 1000).toFixed(1) + 's' : '-'
     const respKb = log.responseSizeKb != null ? (log.responseSizeKb >= 1024 ? (log.responseSizeKb/1024).toFixed(2) + 'MB' : log.responseSizeKb + 'KB') : '-'
+    const attemptsBadge = (log.attempts && log.attempts > 1) ? `<span class="retry-tag">↻ ${log.attempts}次</span>` : ''
 
     return `
     <tr>
       <td class="time">${startLocal}</td>
       <td>${status}${errorText}</td>
-      <td class="duration ${log.durationMs > 60000 ? 'slow' : ''}">${log.durationStr}</td>
+      <td class="duration ${log.durationMs > 60000 ? 'slow' : ''}">${log.durationStr} ${attemptsBadge}</td>
       <td class="duration">${upMs}</td>
       <td class="prompt" title="${escapeHtml(log.prompt)}">${escapeHtml(log.prompt)} ${promptLenBadge}</td>
       <td>${rawBodyKb}</td>
@@ -135,6 +136,7 @@ function renderHTML(result) {
     td.prompt { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cbd5e1; }
     td.model { color: #94a3b8; font-size: 12px; }
     .dim { color: #64748b; font-size: 11px; margin-left: 4px; }
+    .retry-tag { display: inline-block; background: #713f12; color: #fde68a; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 6px; }
     .badge { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; }
     .badge.success { background: #14532d; color: #86efac; }
     .badge.fail { background: #450a0a; color: #fca5a5; }
